@@ -1,8 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { apiBase, wsUrl } from '$lib/boring';
+	import { apiBase, wsUrl, createMachine, type Machine } from '$lib/boring';
 
-	type Machine = { id: string; mode: string; boot_ms: number };
 	type Phase = 'booting' | 'connecting' | 'live' | 'done' | 'error';
 
 	let { onClose }: { onClose?: () => void } = $props();
@@ -53,13 +52,7 @@
 
 	async function launch() {
 		try {
-			const res = await fetch(`${apiBase}/v1/machines`, {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ template: 'desktop', ttl_seconds: TTL })
-			});
-			if (!res.ok) throw new Error(`control plane returned ${res.status}`);
-			machine = await res.json();
+			machine = await createMachine('desktop', TTL);
 			phase = 'connecting';
 			caption = 'Starting the display…';
 			// Let X paint before noVNC's first full frame; the agent starts on connect.

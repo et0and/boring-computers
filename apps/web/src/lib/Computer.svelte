@@ -1,9 +1,8 @@
 <script lang="ts">
 	import '@xterm/xterm/css/xterm.css';
 	import { onMount } from 'svelte';
-	import { apiBase, wsUrl } from '$lib/boring';
+	import { apiBase, wsUrl, createMachine, type Machine } from '$lib/boring';
 
-	type Machine = { id: string; mode: string; boot_ms: number; expires_at: string };
 	type Phase = 'idle' | 'booting' | 'live' | 'closed' | 'error';
 
 	let { onClose }: { onClose?: () => void } = $props();
@@ -35,33 +34,12 @@
 		phase = 'booting';
 		error = '';
 		try {
-			const ctrl = new AbortController();
-			const timer = setTimeout(() => ctrl.abort(), 8000);
-			let res: Response;
-			try {
-				res = await fetch(`${apiBase}/v1/machines`, {
-					method: 'POST',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify({ template: 'python', ttl_seconds: TTL }),
-					signal: ctrl.signal
-				});
-			} finally {
-				clearTimeout(timer);
-			}
-			if (res.status === 401)
-				throw new Error('control plane rejected auth — is BORING_TOKEN set on the dev server?');
-			if (!res.ok) throw new Error(`control plane returned ${res.status}`);
-			machine = await res.json();
+			machine = await createMachine('python', TTL);
 			await openTerminal(machine!.id);
 			phase = 'live';
 			startCountdown();
 		} catch (e) {
-			error =
-				e instanceof Error && e.name === 'AbortError'
-					? 'control plane unreachable — is the SSH tunnel to the box up?'
-					: e instanceof Error
-						? e.message
-						: String(e);
+			error = e instanceof Error ? e.message : String(e);
 			phase = 'error';
 		}
 	}

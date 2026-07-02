@@ -1,8 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { apiBase, wsUrl } from '$lib/boring';
+	import { apiBase, wsUrl, createMachine, type Machine } from '$lib/boring';
 
-	type Machine = { id: string; mode: string; boot_ms: number; display: boolean };
 	type Phase = 'idle' | 'booting' | 'connecting' | 'live' | 'closed' | 'error';
 
 	let { onClose }: { onClose?: () => void } = $props();
@@ -31,15 +30,7 @@
 		phase = 'booting';
 		error = '';
 		try {
-			const res = await fetch(`${apiBase}/v1/machines`, {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ template: 'desktop', ttl_seconds: TTL })
-			});
-			if (res.status === 401)
-				throw new Error('control plane rejected auth — is BORING_TOKEN set on the dev server?');
-			if (!res.ok) throw new Error(`control plane returned ${res.status}`);
-			machine = await res.json();
+			machine = await createMachine('desktop', TTL);
 			phase = 'connecting';
 			startCountdown();
 			// The desktop cold-boots X and paints its apps over a few seconds;

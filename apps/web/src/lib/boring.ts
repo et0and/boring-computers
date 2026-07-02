@@ -15,3 +15,53 @@ export function wsUrl(path: string): string {
 	const proto = location.protocol === 'https:' ? 'wss' : 'ws';
 	return `${proto}://${location.host}/boring${path}`;
 }
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Create a machine, retrying transient failures (network errors, timeouts, 5xx)
+ * up to a few times with backoff. Client errors (401/404/429) fail fast with a
+ * friendly message. Returns the parsed machine, or throws an Error whose message
+ * is safe to show a visitor.
+ */
+export async function createMachine(template: string, ttlSeconds: number): Promise<Machine> {
+	const attempts = 3;
+	let last = 'the datacenter is busy — try again in a moment';
+	for (let i = 0; i < attempts; i++) {
+		let res: Response | null = null;
+		try {
+			const ctrl = new AbortController();
+			const timer = setTimeout(() => ctrl.abort(), 12000);
+			try {
+				res = await fetch(`${apiBase}/v1/machines`, {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ template, ttl_seconds: ttlSeconds }),
+					signal: ctrl.signal
+				});
+			} finally {
+				clearTimeout(timer);
+			}
+		} catch {
+			last = "couldn't reach the datacenter"; // network/timeout → retryable
+		}
+		if (res) {
+			if (res.ok) return (await res.json()) as Machine;
+			if (res.status === 429)
+				throw new Error('a lot of people are trying this right now — wait a few seconds and retry');
+			if (res.status === 401) throw new Error('the datacenter rejected the request');
+			if (res.status < 500) throw new Error(`the datacenter returned ${res.status}`);
+			last = `the datacenter is busy (${res.status})`; // 5xx → retryable
+		}
+		if (i < attempts - 1) await sleep(500 * (i + 1));
+	}
+	throw new Error(last);
+}
+
+export type Machine = {
+	id: string;
+	mode: string;
+	boot_ms: number;
+	expires_at?: string;
+	display?: boolean;
+};
