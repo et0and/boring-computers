@@ -1,15 +1,16 @@
 <script lang="ts">
 	import Computer from '$lib/Computer.svelte';
+	import Desktop from '$lib/Desktop.svelte';
 
-	let active = $state(false);
+	type Mode = null | 'shell' | 'desktop';
+	let mode = $state<Mode>(null);
 
 	function onKeydown(e: KeyboardEvent) {
-		if (e.key === 'Enter' && !active) {
+		if (e.key === 'Enter' && mode === null) {
 			const el = document.activeElement;
-			// ignore Enter inside inputs/textareas/the terminal itself
 			if (el && ['INPUT', 'TEXTAREA'].includes(el.tagName)) return;
 			if (el?.closest('.xterm')) return;
-			active = true;
+			mode = 'shell';
 		}
 	}
 </script>
@@ -29,21 +30,32 @@
 		<span class="text-ink-subtle">refreshingly boring.</span>
 	</h1>
 
-	{#if active}
-		<Computer onClose={() => (active = false)} />
+	{#if mode === 'shell'}
+		<Computer onClose={() => (mode = null)} />
+	{:else if mode === 'desktop'}
+		<Desktop onClose={() => (mode = null)} />
 	{:else}
-		<button
-			onclick={() => (active = true)}
-			class="group inline-flex items-center gap-2 font-mono text-[13px] text-ink-subtle transition-colors hover:text-ink focus-visible:outline-none"
-		>
-			<kbd
-				class="rounded-[5px] border border-line bg-surface px-1.5 py-0.5 text-ink-muted transition-colors group-hover:border-white/25"
-				>⏎</kbd
+		<div class="flex flex-col items-center gap-3">
+			<button
+				onclick={() => (mode = 'shell')}
+				class="group inline-flex items-center gap-2 font-mono text-[13px] text-ink-subtle transition-colors hover:text-ink focus-visible:outline-none"
 			>
-			<span
-				>Press <span class="text-ink-muted group-hover:text-ink">enter</span> to get a computer</span
+				<kbd
+					class="rounded-[5px] border border-line bg-surface px-1.5 py-0.5 text-ink-muted transition-colors group-hover:border-white/25"
+					>⏎</kbd
+				>
+				<span
+					>Press <span class="text-ink-muted group-hover:text-ink">enter</span> to get a computer</span
+				>
+				<span class="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-ink-subtle align-middle"
+				></span>
+			</button>
+			<button
+				onclick={() => (mode = 'desktop')}
+				class="font-mono text-[12px] text-ink-faint transition-colors hover:text-ink-muted focus-visible:outline-none"
 			>
-			<span class="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-ink-subtle align-middle"></span>
-		</button>
+				or spin up a full desktop →
+			</button>
+		</div>
 	{/if}
 </div>
