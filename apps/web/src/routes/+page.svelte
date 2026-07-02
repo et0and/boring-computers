@@ -1,44 +1,49 @@
 <script lang="ts">
-	import { page } from '$app/state';
+	import Computer from '$lib/Computer.svelte';
 
-	const title = 'Boring Computers';
-	const description = 'Computers that are refreshingly boring.';
+	let active = $state(false);
 
-	// Absolute URLs so social scrapers resolve the image on any deployed domain.
-	const ogImage = $derived(`${page.url.origin}/og.png`);
-	const ogUrl = $derived(page.url.href);
+	function onKeydown(e: KeyboardEvent) {
+		if (e.key === 'Enter' && !active) {
+			const el = document.activeElement;
+			// ignore Enter inside inputs/textareas/the terminal itself
+			if (el && ['INPUT', 'TEXTAREA'].includes(el.tagName)) return;
+			if (el?.closest('.xterm')) return;
+			active = true;
+		}
+	}
 </script>
 
 <svelte:head>
-	<title>{title}</title>
-	<meta name="description" content={description} />
-
-	<!-- OpenGraph -->
-	<meta property="og:type" content="website" />
-	<meta property="og:site_name" content="Boring Computers" />
-	<meta property="og:url" content={ogUrl} />
-	<meta property="og:title" content={title} />
-	<meta property="og:description" content={description} />
-	<meta property="og:image" content={ogImage} />
-	<meta property="og:image:width" content="1200" />
-	<meta property="og:image:height" content="630" />
-	<meta
-		property="og:image:alt"
-		content="boring computers — Computers that are refreshingly boring."
-	/>
-
-	<!-- Twitter -->
-	<meta name="twitter:card" content="summary_large_image" />
-	<meta name="twitter:title" content={title} />
-	<meta name="twitter:description" content={description} />
-	<meta name="twitter:image" content={ogImage} />
+	<title>Boring Computers</title>
+	<meta name="description" content="Computers that are refreshingly boring." />
 </svelte:head>
 
-<div class="flex min-h-screen items-center justify-center bg-black px-5">
+<svelte:window onkeydown={onKeydown} />
+
+<div class="flex min-h-screen flex-col items-center justify-center gap-8 bg-black px-5 py-16">
 	<h1
 		class="text-center text-[clamp(1rem,3vw,2rem)] font-semibold whitespace-nowrap tracking-[-0.03em] text-ink"
 	>
 		Computers that are
 		<span class="text-ink-subtle">refreshingly boring.</span>
 	</h1>
+
+	{#if active}
+		<Computer onClose={() => (active = false)} />
+	{:else}
+		<button
+			onclick={() => (active = true)}
+			class="group inline-flex items-center gap-2 font-mono text-[13px] text-ink-subtle transition-colors hover:text-ink focus-visible:outline-none"
+		>
+			<kbd
+				class="rounded-[5px] border border-line bg-surface px-1.5 py-0.5 text-ink-muted transition-colors group-hover:border-white/25"
+				>⏎</kbd
+			>
+			<span
+				>Press <span class="text-ink-muted group-hover:text-ink">enter</span> to get a computer</span
+			>
+			<span class="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-ink-subtle align-middle"></span>
+		</button>
+	{/if}
 </div>
