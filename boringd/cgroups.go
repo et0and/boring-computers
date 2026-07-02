@@ -97,11 +97,30 @@ func (c *Cgroups) Place(pid int, id string, tpl Template) {
 }
 
 // Remove deletes a per-VM cgroup (call after the firecracker child has exited).
+// Also removes the empty cgroup the jailer created for the VM, if any.
 func (c *Cgroups) Remove(id string) {
 	if !c.enabled {
 		return
 	}
 	_ = os.Remove(filepath.Join(c.base, "vm-"+id))
+	_ = os.Remove(filepath.Join(c.base, id))
+}
+
+// jailerParentCgroup returns the cgroup (relative to the cgroup v2 root) under
+// which the jailer should create each microvm's cgroup: boringd's own delegated
+// cgroup, minus the "main" leaf we moved ourselves into. Empty if unavailable.
+func jailerParentCgroup() string {
+	data, err := os.ReadFile("/proc/self/cgroup")
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		if strings.HasPrefix(line, "0::") {
+			rel := strings.TrimSuffix(strings.TrimPrefix(line, "0::"), "/main")
+			return strings.TrimPrefix(rel, "/")
+		}
+	}
+	return ""
 }
 
 func writeCG(dir, file, val string) {

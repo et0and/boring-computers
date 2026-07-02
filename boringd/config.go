@@ -44,6 +44,13 @@ type Config struct {
 	CgroupEnable  bool
 	CPUMaxPercent int // host CPU % cap per VM (e.g. 100 = 1 core)
 	PidsMax       int // max host-visible pids for the firecracker child
+
+	// Jailer: run firecracker chrooted + unprivileged (defense-in-depth).
+	JailerEnable bool
+	JailerBin    string // /opt/boring/bin/jailer
+	JailerUID    int
+	JailerGID    int
+	ChrootBase   string // /srv/jailer
 }
 
 // LoadConfig builds a Config from the environment, applying the fixed defaults.
@@ -69,6 +76,11 @@ func LoadConfig() Config {
 		CgroupEnable:     os.Getenv("BORING_CGROUP") != "0",
 		CPUMaxPercent:    envInt("BORING_CPU_MAX_PCT", 150),
 		PidsMax:          envInt("BORING_PIDS_MAX", 512),
+		JailerEnable:     os.Getenv("BORING_JAILER") == "1",
+		JailerBin:        envStr("BORING_JAILER_BIN", "/opt/boring/bin/jailer"),
+		JailerUID:        envInt("BORING_JAILER_UID", 30000),
+		JailerGID:        envInt("BORING_JAILER_GID", 991),
+		ChrootBase:       envStr("BORING_CHROOT_BASE", "/srv/jailer"),
 	}
 	if c.MaxMachines < 1 {
 		c.MaxMachines = 1

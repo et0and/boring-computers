@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -159,8 +160,16 @@ type fcDriver struct {
 	console  *Console
 	sock     string
 	overlay  string
-	vsockUDS string // set when the template configures a vsock device
+	vsockUDS string // host path to the vsock UDS (set when template has a display)
 	apiClt   *http.Client
+
+	// Jailer mode: firecracker runs chrooted + unprivileged. Paths handed to the
+	// firecracker API are relative to the chroot; host-side paths differ.
+	jailed    bool
+	chroot    string // host path of the jail's root/ dir
+	apiKernel string // kernel path as seen by (possibly chrooted) firecracker
+	apiRootfs string // rootfs path as seen by firecracker
+	apiVsock  string // vsock uds path as seen by firecracker
 }
 
 // Console exposes the driver's console for the tty handler.
@@ -183,9 +192,32 @@ func bootMachine(cfg Config, id string, tpl Template, snapDir string) (*fcDriver
 		return nil, "", 0, fmt.Errorf("mkdir run dir: %w", err)
 	}
 
-	sock := filepath.Join(cfg.RunDir, id+".sock")
-	overlay := filepath.Join(cfg.RunDir, id+".ext4")
-	_ = os.Remove(sock) // stale socket from a crashed prior run
+	jailed := cfg.JailerEnable
+
+	// Path plan differs between direct and jailed launch. In jailed mode the
+	// firecracker API sees chroot-relative paths; host paths point into the jail.
+	var sock, overlay, chroot string
+	d := &fcDriver{cfg: cfg, id: id, tpl: tpl, jailed: jailed}
+	if jailed {
+		chroot = filepath.Join(cfg.ChrootBase, "firecracker", id, "root")
+		sock = filepath.Join(chroot, "run", "fc.sock")
+		overlay = filepath.Join(chroot, "rootfs.ext4")
+		d.chroot, d.apiKernel, d.apiRootfs, d.apiVsock = chroot, "/vmlinux", "/rootfs.ext4", "/run/vsock"
+		_ = os.RemoveAll(filepath.Join(cfg.ChrootBase, "firecracker", id))
+	} else {
+		sock = filepath.Join(cfg.RunDir, id+".sock")
+		overlay = filepath.Join(cfg.RunDir, id+".ext4")
+		d.apiKernel, d.apiRootfs, d.apiVsock = cfg.KernelPath, overlay, filepath.Join(cfg.RunDir, id+".vsock")
+		_ = os.Remove(sock)
+	}
+	d.sock, d.overlay = sock, overlay
+	if tpl.Vsock {
+		d.vsockUDS = d.apiVsock
+		if jailed {
+			d.vsockUDS = filepath.Join(chroot, "run", "vsock")
+		}
+		_ = os.Remove(d.vsockUDS)
+	}
 
 	// Determine the base rootfs: the template's own rootfs by default, or a
 	// snapshot template's shipped rootfs when restoring.
@@ -202,54 +234,87 @@ func bootMachine(cfg Config, id string, tpl Template, snapDir string) (*fcDriver
 			baseRootfs = snRoot
 		}
 	}
-	if err := copyReflink(baseRootfs, overlay); err != nil {
-		return nil, "", 0, fmt.Errorf("copy overlay: %w", err)
+
+	// Direct mode: stage the overlay before launch (the run dir already exists).
+	// Jailed mode: the chroot only exists after jailer runs, so stage below.
+	if !jailed {
+		if err := copyReflink(baseRootfs, overlay); err != nil {
+			return nil, "", 0, fmt.Errorf("copy overlay: %w", err)
+		}
 	}
 
-	// Launch firecracker with stdio pipes we own.
-	cmd := exec.Command(cfg.FirecrackerBin, "--api-sock", sock, "--id", id)
+	// Build the launch command.
+	var cmd *exec.Cmd
+	if jailed {
+		args := []string{
+			"--id", id,
+			"--exec-file", cfg.FirecrackerBin,
+			"--uid", strconv.Itoa(cfg.JailerUID),
+			"--gid", strconv.Itoa(cfg.JailerGID),
+			"--cgroup-version", "2",
+			"--chroot-base-dir", cfg.ChrootBase,
+		}
+		// Have the jailer create a child cgroup (with resource caps) inside
+		// boringd's delegated subtree. Passing --cgroup makes jailer create a
+		// child cgroup named after the id rather than joining the parent directly.
+		if parent := jailerParentCgroup(); parent != "" {
+			mem := tpl.MemSizeMB
+			if mem <= 0 {
+				mem = cfg.MemSizeMB
+			}
+			args = append(args,
+				"--parent-cgroup", parent,
+				"--cgroup", fmt.Sprintf("cpu.max=%d 100000", cfg.CPUMaxPercent*1000),
+				"--cgroup", fmt.Sprintf("pids.max=%d", cfg.PidsMax),
+				"--cgroup", fmt.Sprintf("memory.max=%d", (mem+128)*1024*1024),
+			)
+		}
+		args = append(args, "--", "--api-sock", "/run/fc.sock")
+		cmd = exec.Command(cfg.JailerBin, args...)
+	} else {
+		cmd = exec.Command(cfg.FirecrackerBin, "--api-sock", sock, "--id", id)
+	}
 	stdinPipe, err := cmd.StdinPipe()
 	if err != nil {
-		_ = os.Remove(overlay)
+		d.Close()
 		return nil, "", 0, fmt.Errorf("stdin pipe: %w", err)
 	}
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
-		_ = os.Remove(overlay)
+		d.Close()
 		return nil, "", 0, fmt.Errorf("stdout pipe: %w", err)
 	}
 	cmd.Stderr = os.Stderr
-
 	if err := cmd.Start(); err != nil {
-		_ = os.Remove(overlay)
-		return nil, "", 0, fmt.Errorf("start firecracker: %w", err)
+		d.Close()
+		return nil, "", 0, fmt.Errorf("start: %w", err)
 	}
 
 	console := newConsole(stdinPipe)
 	go console.pump(stdoutPipe)
-
-	d := &fcDriver{
-		cfg:     cfg,
-		id:      id,
-		tpl:     tpl,
-		cmd:     cmd,
-		console: console,
-		sock:    sock,
-		overlay: overlay,
-		apiClt:  newUnixClient(sock),
-	}
-	if tpl.Vsock {
-		d.vsockUDS = filepath.Join(cfg.RunDir, id+".vsock")
-		_ = os.Remove(d.vsockUDS)
-	}
+	d.cmd, d.console, d.apiClt = cmd, console, newUnixClient(sock)
 
 	// Subscribe before we start so the boot-timer sees the whole stream.
 	_, sub := console.Subscribe()
 	defer console.Unsubscribe(sub)
 
-	if err := waitForSocket(sock, 5*time.Second); err != nil {
+	socketWait := 5 * time.Second
+	if jailed {
+		socketWait = 12 * time.Second // jailer sets up the chroot first
+	}
+	if err := waitForSocket(sock, socketWait); err != nil {
 		d.Close()
 		return nil, "", 0, fmt.Errorf("api socket: %w", err)
+	}
+
+	// Jailed mode: the chroot now exists; stage kernel + rootfs (+ snapshot
+	// artefacts) into it, owned/readable by the jailed uid. Hardlinks are instant
+	// so snapshot restore stays fast.
+	if jailed {
+		if err := stageJail(cfg, d, baseRootfs, snapDir); err != nil {
+			d.Close()
+			return nil, "", 0, fmt.Errorf("stage jail: %w", err)
+		}
 	}
 
 	mode := "coldboot"
@@ -271,7 +336,7 @@ func bootMachine(cfg Config, id string, tpl Template, snapDir string) (*fcDriver
 		bootMS = time.Since(t).Milliseconds()
 	} else {
 		start := time.Now()
-		if err := d.coldBoot(overlay); err != nil {
+		if err := d.coldBoot(); err != nil {
 			d.Close()
 			return nil, "", 0, fmt.Errorf("cold boot: %w", err)
 		}
@@ -283,20 +348,20 @@ func bootMachine(cfg Config, id string, tpl Template, snapDir string) (*fcDriver
 }
 
 // coldBoot configures and starts a fresh VM via the firecracker API.
-func (d *fcDriver) coldBoot(overlay string) error {
+func (d *fcDriver) coldBoot() error {
 	bootArgs := "console=ttyS0 reboot=k panic=1 pci=off i8042.noaux i8042.nomux random.trust_cpu=on"
 	if d.tpl.InitPath != "" {
 		bootArgs += " init=" + d.tpl.InitPath
 	}
 	if err := d.apiPut("/boot-source", map[string]any{
-		"kernel_image_path": d.cfg.KernelPath,
+		"kernel_image_path": d.apiKernel,
 		"boot_args":         bootArgs,
 	}); err != nil {
 		return err
 	}
 	if err := d.apiPut("/drives/rootfs", map[string]any{
 		"drive_id":       "rootfs",
-		"path_on_host":   overlay,
+		"path_on_host":   d.apiRootfs,
 		"is_root_device": true,
 		"is_read_only":   false,
 	}); err != nil {
@@ -320,7 +385,7 @@ func (d *fcDriver) coldBoot(overlay string) error {
 	if d.vsockUDS != "" {
 		if err := d.apiPut("/vsock", map[string]any{
 			"guest_cid": 3,
-			"uds_path":  d.vsockUDS,
+			"uds_path":  d.apiVsock,
 		}); err != nil {
 			return err
 		}
@@ -333,22 +398,28 @@ func (d *fcDriver) coldBoot(overlay string) error {
 	return nil
 }
 
-// restoreSnapshot loads a snapshot and resumes the VM.
+// restoreSnapshot loads a snapshot and resumes the VM. In jailed mode the
+// snapshot/mem artefacts are hardlinked into the chroot (by stageJail) and the
+// firecracker API sees them at /snap and /mem.
 func (d *fcDriver) restoreSnapshot(snapDir, overlay string) error {
-	snapFile := filepath.Join(snapDir, "snapshot_file")
-	memFile := filepath.Join(snapDir, "mem_file")
-	if !fileExists(snapFile) || !fileExists(memFile) {
+	snapPath := filepath.Join(snapDir, "snapshot_file")
+	memPath := filepath.Join(snapDir, "mem_file")
+	if !fileExists(snapPath) || !fileExists(memPath) {
 		return fmt.Errorf("snapshot artefacts missing in %s", snapDir)
+	}
+	apiSnap, apiMem := snapPath, memPath
+	if d.jailed {
+		apiSnap, apiMem = "/snap", "/mem"
 	}
 	// Load WITHOUT resuming, then rebind the block device to this machine's own
 	// overlay (the snapshot baked the template's rootfs path), then resume. This
 	// gives the fork an isolated, writable rootfs identical in content to the
 	// template — so the resumed guest's in-memory fs state stays consistent.
 	if err := d.apiPut("/snapshot/load", map[string]any{
-		"snapshot_path": snapFile,
+		"snapshot_path": apiSnap,
 		"mem_backend": map[string]any{
 			"backend_type": "File",
-			"backend_path": memFile,
+			"backend_path": apiMem,
 		},
 		"resume_vm": false,
 	}); err != nil {
@@ -356,7 +427,7 @@ func (d *fcDriver) restoreSnapshot(snapDir, overlay string) error {
 	}
 	if err := d.apiPatch("/drives/rootfs", map[string]any{
 		"drive_id":     "rootfs",
-		"path_on_host": overlay,
+		"path_on_host": d.apiRootfs,
 	}); err != nil {
 		return err
 	}
@@ -450,11 +521,73 @@ func (d *fcDriver) Close() {
 			_ = d.console.stdin.Close()
 		}
 	}
-	_ = os.Remove(d.sock)
-	_ = os.Remove(d.overlay)
-	if d.vsockUDS != "" {
-		_ = os.Remove(d.vsockUDS)
+	if d.jailed && d.chroot != "" {
+		// Remove the whole jail (root/ holds sock, overlay, kernel link, vsock).
+		_ = os.RemoveAll(filepath.Dir(d.chroot))
+	} else {
+		_ = os.Remove(d.sock)
+		_ = os.Remove(d.overlay)
+		if d.vsockUDS != "" {
+			_ = os.Remove(d.vsockUDS)
+		}
 	}
+}
+
+// stageJail places the kernel, rootfs overlay and (when restoring) snapshot
+// artefacts inside the jail chroot so the chrooted, unprivileged firecracker can
+// read them. Hardlinks keep snapshot restore instant (ext4 has no reflink); the
+// per-VM overlay is a copy owned by the jailed uid.
+func stageJail(cfg Config, d *fcDriver, baseRootfs, snapDir string) error {
+	uid, gid := cfg.JailerUID, cfg.JailerGID
+
+	kdst := filepath.Join(d.chroot, "vmlinux")
+	if err := hardlinkOrCopy(cfg.KernelPath, kdst); err != nil {
+		return fmt.Errorf("kernel: %w", err)
+	}
+	_ = os.Chmod(kdst, 0o644)
+
+	if err := copyReflink(baseRootfs, d.overlay); err != nil {
+		return fmt.Errorf("overlay: %w", err)
+	}
+	if err := os.Chown(d.overlay, uid, gid); err != nil {
+		return fmt.Errorf("chown overlay: %w", err)
+	}
+
+	if snapDir != "" {
+		links := [][2]string{
+			{filepath.Join(snapDir, "snapshot_file"), filepath.Join(d.chroot, "snap")},
+			{filepath.Join(snapDir, "mem_file"), filepath.Join(d.chroot, "mem")},
+		}
+		for _, l := range links {
+			if err := hardlinkOrCopy(l[0], l[1]); err != nil {
+				return fmt.Errorf("snapshot artefact: %w", err)
+			}
+			// World-readable so the jailed uid can read it (hardlink shares the
+			// inode with the template, so don't chown — just widen read perms).
+			_ = os.Chmod(l[1], 0o644)
+		}
+		// The snapshot baked the template's absolute rootfs path; firecracker
+		// opens it O_RDWR during snapshot/load (before we rebind the drive), so it
+		// must resolve inside the chroot AND be writable by the jailed uid. Point
+		// it at the per-VM overlay (same inode, uid-owned) rather than the shared
+		// read-only template.
+		baked := filepath.Join(d.chroot, snapDir, "rootfs.ext4")
+		if err := os.MkdirAll(filepath.Dir(baked), 0o755); err == nil {
+			_ = os.Remove(baked)
+			_ = os.Link(d.overlay, baked)
+		}
+	}
+	return nil
+}
+
+// hardlinkOrCopy hardlinks src->dst (instant, same filesystem) or falls back to
+// a copy across devices.
+func hardlinkOrCopy(src, dst string) error {
+	_ = os.Remove(dst)
+	if err := os.Link(src, dst); err == nil {
+		return nil
+	}
+	return copyReflink(src, dst)
 }
 
 // DialVsock opens a stream to a guest vsock port through the Firecracker vsock

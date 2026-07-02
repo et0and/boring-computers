@@ -200,8 +200,11 @@ func (mgr *Manager) Create(template string, ttlSeconds int, creatorIP string) (*
 		return nil, err
 	}
 
-	// Cap the guest's host resources (CPU/memory/pids) before it can do much.
-	mgr.cgroups.Place(drv.PID(), id, tpl)
+	// Cap the guest's host resources (CPU/memory/pids). In jailed mode the jailer
+	// already created a capped cgroup for the VM, so we don't place it again.
+	if !mgr.cfg.JailerEnable {
+		mgr.cgroups.Place(drv.PID(), id, tpl)
+	}
 
 	mgr.mu.Lock()
 	m.driver = drv
@@ -271,7 +274,9 @@ func (mgr *Manager) Branch(id, creatorIP string) (*Machine, error) {
 		return nil, ErrSnapshotUnavailable
 	}
 
-	mgr.cgroups.Place(drv.PID(), newID, mgr.cfg.Template(src.Template))
+	if !mgr.cfg.JailerEnable {
+		mgr.cgroups.Place(drv.PID(), newID, mgr.cfg.Template(src.Template))
+	}
 
 	mgr.mu.Lock()
 	child.driver = drv
