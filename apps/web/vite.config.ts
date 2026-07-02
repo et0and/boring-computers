@@ -4,9 +4,12 @@ import { playwright } from '@vitest/browser-playwright';
 import adapter from '@sveltejs/adapter-vercel';
 import { sveltekit } from '@sveltejs/kit/vite';
 
-// boringd control plane (behind an SSH tunnel in dev). The token is injected
-// server-side by the proxy below so it never reaches the browser.
-const BORING_URL = process.env.BORING_URL || 'http://localhost:18080';
+// boringd control plane. Defaults to the public (token-less) endpoint so
+// `npm run dev` works with no SSH tunnel; set BORING_URL to a tunnel
+// (e.g. http://localhost:18080) to target a local/private boringd. If that
+// private boringd needs a token, set BORING_TOKEN and it's injected here
+// server-side so it never reaches the browser.
+const BORING_URL = process.env.BORING_URL || 'https://162-43-188-89.sslip.io';
 const BORING_TOKEN = process.env.BORING_TOKEN || '';
 
 export default defineConfig({
