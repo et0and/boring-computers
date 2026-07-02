@@ -7,16 +7,35 @@
 
 	let { onClose }: { onClose?: () => void } = $props();
 
-	// A deliberately simple, reliable task for the minimal desktop (terminal + clock).
-	const GOAL =
-		"Click the terminal window to focus it, then run a command that prints today's date and a cheerful one-line hello from boring computers.";
+	// A rotating set of tasks so repeat viewers see something different. `label`
+	// is shown as the opening caption; `goal` is sent to the agent.
+	const TASKS = [
+		{
+			label: 'compute 47 × 89 on the calculator',
+			goal: 'Use the on-screen calculator (the xcalc window) to compute 47 times 89 by clicking its buttons: 4, 7, *, 8, 9, =. Do NOT use the terminal. When the answer appears on the calculator display, tell me the number.'
+		},
+		{
+			label: 'add 128 + 256 on the calculator',
+			goal: 'Use the on-screen calculator (the xcalc window) to add 128 and 256 by clicking its buttons: 1, 2, 8, +, 2, 5, 6, =. Do NOT use the terminal. Read the answer from the display and tell me.'
+		},
+		{
+			label: 'print a big ASCII "BORING" banner in the terminal',
+			goal: 'Click the terminal window to focus it, then type the command  figlet -c BORING  and run it to print a big ASCII banner. Then run  date . Tell me what appeared.'
+		},
+		{
+			label: 'print a big ASCII "HELLO" banner in the terminal',
+			goal: 'Click the terminal window to focus it, then type the command  figlet HELLO  and run it to print a big ASCII banner. Then tell me what it drew.'
+		}
+	];
+	const task = TASKS[Math.floor(Math.random() * TASKS.length)];
+	const GOAL = task.goal;
 	const TTL = 240;
 	const MAX_ATTEMPTS = 10;
 
 	let phase = $state<Phase>('booting');
 	let machine = $state<Machine | null>(null);
 	let error = $state('');
-	let caption = $state('Booting a computer for the AI…');
+	let caption = $state(`The AI will ${task.label}. Booting a computer…`);
 	let log = $state<{ kind: string; text: string }[]>([]);
 
 	let screen: HTMLDivElement;

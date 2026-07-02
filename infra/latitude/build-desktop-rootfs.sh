@@ -18,7 +18,9 @@ IMG="${ROOTFS_DIR}/desktop.ext4"
 IMG_SIZE_MB="${IMG_SIZE_MB:-2048}"
 SUITE="${SUITE:-bookworm}"
 MIRROR="${MIRROR:-http://deb.debian.org/debian}"
-PKGS="xvfb,x11vnc,openbox,xterm,x11-xserver-utils,xfonts-base,x11-apps,socat,ca-certificates,procps,iproute2"
+# xcalc/xclock come from x11-apps; figlet for banners. (galculator was dropped —
+# its GTK/dconf-service chain breaks a minbase debootstrap.)
+PKGS="xvfb,x11vnc,openbox,xterm,x11-xserver-utils,xfonts-base,x11-apps,figlet,socat,ca-certificates,procps,iproute2"
 
 log()  { printf '\033[1;34m[desktop]\033[0m %s\n' "$*"; }
 die()  { printf '\033[1;31m[desktop:error]\033[0m %s\n' "$*" >&2; exit 1; }
@@ -85,9 +87,12 @@ i=0; while [ ! -S /tmp/.X11-unix/X0 ] && [ "$i" -lt 100 ]; do i=$((i+1)); sleep 
 
 xsetroot -solid "#0b0b0c" 2>/dev/null
 openbox >/var/log/openbox.log 2>&1 &
-xterm -fa "DejaVu Sans Mono" -fs 11 -geometry 92x26+40+40 -bg "#0e0e0e" -fg "#ededed" \
-  -title "boring computers" -e /bin/sh -c 'echo "boring computers . desktop microVM"; echo "python3 $(python3 --version 2>/dev/null || echo n/a)"; echo; exec /bin/sh' >/dev/null 2>&1 &
-xclock -update 1 -geometry 180x180+1010+40 >/dev/null 2>&1 &
+# Terminal (top-left), calculator (center, sized up so buttons are easy to hit),
+# clock (top-right). xcalc is an Xt app and honours -geometry.
+xterm -fa "DejaVu Sans Mono" -fs 11 -geometry 60x20+32+40 -bg "#0e0e0e" -fg "#ededed" \
+  -title "boring computers" -e /bin/sh -c 'echo "boring computers . desktop microVM"; echo "type figlet <word> for a big banner"; echo; exec /bin/sh' >/dev/null 2>&1 &
+xclock -update 1 -geometry 150x150+1090+40 >/dev/null 2>&1 &
+xcalc -geometry 330x420+650+150 >/var/log/xcalc.log 2>&1 &
 x11vnc -display :0 -forever -shared -nopw -rfbport 5900 -noxdamage -quiet >/var/log/x11vnc.log 2>&1 &
 
 # Bridge guest vsock port 5900 -> local VNC. The host connects via the vsock UDS.
