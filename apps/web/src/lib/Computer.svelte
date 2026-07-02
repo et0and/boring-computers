@@ -5,7 +5,7 @@
 
 	type Phase = 'idle' | 'booting' | 'live' | 'closed' | 'error';
 
-	let { onClose }: { onClose?: () => void } = $props();
+	let { onClose, ttl = 60 }: { onClose?: () => void; ttl?: number } = $props();
 
 	let phase = $state<Phase>('idle');
 	let machine = $state<Machine | null>(null);
@@ -21,8 +21,6 @@
 	let countdown: ReturnType<typeof setInterval> | null = null;
 	let onResize: (() => void) | null = null;
 
-	const TTL = 60;
-
 	// The component only mounts once the user has asked for a computer, so boot
 	// immediately (bind:this on the parent isn't populated until after mount).
 	onMount(() => {
@@ -34,7 +32,7 @@
 		phase = 'booting';
 		error = '';
 		try {
-			machine = await createMachine('python', TTL);
+			machine = await createMachine('python', ttl);
 			await openTerminal(machine!.id);
 			phase = 'live';
 			startCountdown();
@@ -88,14 +86,16 @@
 		setTimeout(() => {
 			if (!term) return;
 			term.reset();
-			term.write('\x1b[38;5;244mboring computers · ephemeral microVM · python3 ready\x1b[0m\r\n');
+			term.write(
+				'\x1b[38;5;244mboring computers · ephemeral microVM · python3 + node ready\x1b[0m\r\n'
+			);
 			if (ws?.readyState === WebSocket.OPEN) ws.send(enc.encode('\n'));
 		}, 450);
 		term.focus();
 	}
 
 	function startCountdown() {
-		remaining = TTL;
+		remaining = ttl;
 		countdown = setInterval(() => {
 			remaining -= 1;
 			if (remaining <= 0) stopCountdown();

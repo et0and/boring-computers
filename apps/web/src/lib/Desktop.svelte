@@ -4,7 +4,7 @@
 
 	type Phase = 'idle' | 'booting' | 'connecting' | 'live' | 'closed' | 'error';
 
-	let { onClose }: { onClose?: () => void } = $props();
+	let { onClose, ttl = 180 }: { onClose?: () => void; ttl?: number } = $props();
 
 	let phase = $state<Phase>('idle');
 	let machine = $state<Machine | null>(null);
@@ -18,7 +18,6 @@
 	let attempts = 0;
 	let disposed = false;
 
-	const TTL = 180;
 	const MAX_ATTEMPTS = 10;
 
 	onMount(() => {
@@ -30,7 +29,7 @@
 		phase = 'booting';
 		error = '';
 		try {
-			machine = await createMachine('desktop', TTL);
+			machine = await createMachine('desktop', ttl);
 			phase = 'connecting';
 			startCountdown();
 			// The desktop cold-boots X and paints its apps over a few seconds;
@@ -91,7 +90,7 @@
 	}
 
 	function startCountdown() {
-		remaining = TTL;
+		remaining = ttl;
 		countdown = setInterval(() => {
 			remaining -= 1;
 			if (remaining <= 0) stopCountdown();
