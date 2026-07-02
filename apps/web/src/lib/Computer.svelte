@@ -34,18 +34,33 @@
 		phase = 'booting';
 		error = '';
 		try {
-			const res = await fetch('/boring/v1/machines', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ template: 'python', ttl_seconds: TTL })
-			});
+			const ctrl = new AbortController();
+			const timer = setTimeout(() => ctrl.abort(), 8000);
+			let res: Response;
+			try {
+				res = await fetch('/boring/v1/machines', {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ template: 'python', ttl_seconds: TTL }),
+					signal: ctrl.signal
+				});
+			} finally {
+				clearTimeout(timer);
+			}
+			if (res.status === 401)
+				throw new Error('control plane rejected auth — is BORING_TOKEN set on the dev server?');
 			if (!res.ok) throw new Error(`control plane returned ${res.status}`);
 			machine = await res.json();
 			await openTerminal(machine!.id);
 			phase = 'live';
 			startCountdown();
 		} catch (e) {
-			error = e instanceof Error ? e.message : String(e);
+			error =
+				e instanceof Error && e.name === 'AbortError'
+					? 'control plane unreachable — is the SSH tunnel to the box up?'
+					: e instanceof Error
+						? e.message
+						: String(e);
 			phase = 'error';
 		}
 	}
