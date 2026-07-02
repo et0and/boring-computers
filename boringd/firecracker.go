@@ -152,13 +152,15 @@ func (c *Console) closeSubs() {
 // ---------------------------------------------------------------------------
 
 type fcDriver struct {
-	cfg     Config
-	id      string
-	cmd     *exec.Cmd
-	console *Console
-	sock    string
-	overlay string
-	apiClt  *http.Client
+	cfg      Config
+	id       string
+	tpl      Template
+	cmd      *exec.Cmd
+	console  *Console
+	sock     string
+	overlay  string
+	vsockUDS string // set when the template configures a vsock device
+	apiClt   *http.Client
 }
 
 // Console exposes the driver's console for the tty handler.
@@ -168,7 +170,7 @@ func (d *fcDriver) Console() *Console { return d.console }
 // configure it over the API socket, start it (or restore a snapshot), and time
 // the boot up to the readiness marker. snapDir, if non-empty, points at a
 // directory containing snapshot_file + mem_file to restore from.
-func bootMachine(cfg Config, id, template, snapDir string) (*fcDriver, string, int64, error) {
+func bootMachine(cfg Config, id string, tpl Template, snapDir string) (*fcDriver, string, int64, error) {
 	if err := os.MkdirAll(cfg.RunDir, 0o755); err != nil {
 		return nil, "", 0, fmt.Errorf("mkdir run dir: %w", err)
 	}
@@ -177,11 +179,15 @@ func bootMachine(cfg Config, id, template, snapDir string) (*fcDriver, string, i
 	overlay := filepath.Join(cfg.RunDir, id+".ext4")
 	_ = os.Remove(sock) // stale socket from a crashed prior run
 
-	// Determine the base rootfs: a snapshot template may ship its own rootfs.
-	baseRootfs := cfg.BaseRootfs
+	// Determine the base rootfs: the template's own rootfs by default, or a
+	// snapshot template's shipped rootfs when restoring.
+	baseRootfs := tpl.Rootfs
+	if baseRootfs == "" {
+		baseRootfs = cfg.BaseRootfs
+	}
 	if snapDir == "" {
-		if tpl := filepath.Join(cfg.TemplatesDir, template, "rootfs.ext4"); fileExists(tpl) {
-			baseRootfs = tpl
+		if t := filepath.Join(cfg.TemplatesDir, tpl.Name, "rootfs.ext4"); fileExists(t) {
+			baseRootfs = t
 		}
 	} else {
 		if snRoot := filepath.Join(snapDir, "rootfs.ext4"); fileExists(snRoot) {
@@ -217,11 +223,16 @@ func bootMachine(cfg Config, id, template, snapDir string) (*fcDriver, string, i
 	d := &fcDriver{
 		cfg:     cfg,
 		id:      id,
+		tpl:     tpl,
 		cmd:     cmd,
 		console: console,
 		sock:    sock,
 		overlay: overlay,
 		apiClt:  newUnixClient(sock),
+	}
+	if tpl.Vsock {
+		d.vsockUDS = filepath.Join(cfg.RunDir, id+".vsock")
+		_ = os.Remove(d.vsockUDS)
 	}
 
 	// Subscribe before we start so the boot-timer sees the whole stream.
@@ -246,7 +257,7 @@ func bootMachine(cfg Config, id, template, snapDir string) (*fcDriver, string, i
 			log.Printf("machine %s: snapshot restore failed, cold booting: %v", id, err)
 			// The child may be in a bad state; restart cleanly as cold boot.
 			d.Close()
-			return bootMachine(cfg, id, template, "")
+			return bootMachine(cfg, id, tpl, "")
 		}
 		mode = "snapshot"
 		bootMS = time.Since(t).Milliseconds()
@@ -266,6 +277,9 @@ func bootMachine(cfg Config, id, template, snapDir string) (*fcDriver, string, i
 // coldBoot configures and starts a fresh VM via the firecracker API.
 func (d *fcDriver) coldBoot(overlay string) error {
 	bootArgs := "console=ttyS0 reboot=k panic=1 pci=off i8042.noaux i8042.nomux random.trust_cpu=on"
+	if d.tpl.InitPath != "" {
+		bootArgs += " init=" + d.tpl.InitPath
+	}
 	if err := d.apiPut("/boot-source", map[string]any{
 		"kernel_image_path": d.cfg.KernelPath,
 		"boot_args":         bootArgs,
@@ -280,11 +294,28 @@ func (d *fcDriver) coldBoot(overlay string) error {
 	}); err != nil {
 		return err
 	}
+	vcpu, mem := d.tpl.VCPUs, d.tpl.MemSizeMB
+	if vcpu <= 0 {
+		vcpu = d.cfg.VCPUs
+	}
+	if mem <= 0 {
+		mem = d.cfg.MemSizeMB
+	}
 	if err := d.apiPut("/machine-config", map[string]any{
-		"vcpu_count":   d.cfg.VCPUs,
-		"mem_size_mib": d.cfg.MemSizeMB,
+		"vcpu_count":   vcpu,
+		"mem_size_mib": mem,
 	}); err != nil {
 		return err
+	}
+	// A vsock device gives the host a private channel to guest services (the
+	// desktop VNC server listens on guest vsock port 5900).
+	if d.vsockUDS != "" {
+		if err := d.apiPut("/vsock", map[string]any{
+			"guest_cid": 3,
+			"uds_path":  d.vsockUDS,
+		}); err != nil {
+			return err
+		}
 	}
 	if err := d.apiPut("/actions", map[string]any{
 		"action_type": "InstanceStart",
@@ -413,6 +444,53 @@ func (d *fcDriver) Close() {
 	}
 	_ = os.Remove(d.sock)
 	_ = os.Remove(d.overlay)
+	if d.vsockUDS != "" {
+		_ = os.Remove(d.vsockUDS)
+	}
+}
+
+// DialVsock opens a stream to a guest vsock port through the Firecracker vsock
+// UDS, performing the host-initiated "CONNECT <port>" handshake. Used to reach
+// the desktop VNC server (guest vsock port 5900) for the /vnc bridge.
+func (d *fcDriver) DialVsock(port int) (net.Conn, error) {
+	if d.vsockUDS == "" {
+		return nil, fmt.Errorf("machine has no vsock device")
+	}
+	conn, err := net.DialTimeout("unix", d.vsockUDS, 5*time.Second)
+	if err != nil {
+		return nil, fmt.Errorf("dial vsock uds: %w", err)
+	}
+	if _, err := fmt.Fprintf(conn, "CONNECT %d\n", port); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	// Read the "OK <port>\n" acknowledgement line before returning the raw stream.
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	line := make([]byte, 0, 32)
+	buf := make([]byte, 1)
+	for {
+		n, err := conn.Read(buf)
+		if err != nil {
+			conn.Close()
+			return nil, fmt.Errorf("vsock connect: %w", err)
+		}
+		if n == 1 {
+			if buf[0] == '\n' {
+				break
+			}
+			line = append(line, buf[0])
+			if len(line) > 64 {
+				conn.Close()
+				return nil, fmt.Errorf("vsock connect: overlong response")
+			}
+		}
+	}
+	if !bytes.HasPrefix(line, []byte("OK")) {
+		conn.Close()
+		return nil, fmt.Errorf("vsock connect refused: %q", string(line))
+	}
+	_ = conn.SetReadDeadline(time.Time{})
+	return conn, nil
 }
 
 // ---------------------------------------------------------------------------

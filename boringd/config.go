@@ -22,6 +22,7 @@ type Config struct {
 	FirecrackerBin string // /opt/boring/bin/firecracker
 	KernelPath     string // /opt/boring/kernel/vmlinux
 	BaseRootfs     string // /opt/boring/rootfs/rootfs.ext4
+	DesktopRootfs  string // /opt/boring/rootfs/desktop.ext4
 	TemplatesDir   string // /opt/boring/templates
 	RunDir         string // /opt/boring/run
 
@@ -44,6 +45,7 @@ func LoadConfig() Config {
 		FirecrackerBin: envStr("BORING_FIRECRACKER_BIN", "/opt/boring/bin/firecracker"),
 		KernelPath:     envStr("BORING_KERNEL", "/opt/boring/kernel/vmlinux"),
 		BaseRootfs:     envStr("BORING_ROOTFS", "/opt/boring/rootfs/rootfs.ext4"),
+		DesktopRootfs:  envStr("BORING_DESKTOP_ROOTFS", "/opt/boring/rootfs/desktop.ext4"),
 		TemplatesDir:   envStr("BORING_TEMPLATES", "/opt/boring/templates"),
 		RunDir:         envStr("BORING_RUN", "/opt/boring/run"),
 		DefaultTTL:     120,

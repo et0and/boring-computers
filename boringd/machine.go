@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"log"
+	"net"
 	"path/filepath"
 	"sync"
 	"time"
@@ -26,6 +27,7 @@ type Machine struct {
 	Mode      string
 	BootMS    int64
 	Template  string
+	Display   bool
 	CreatedAt time.Time
 	ExpiresAt time.Time
 
@@ -43,6 +45,7 @@ type machineView struct {
 	Mode      string `json:"mode"`
 	BootMS    int64  `json:"boot_ms"`
 	Template  string `json:"template"`
+	Display   bool   `json:"display"`
 	CreatedAt string `json:"created_at"`
 	ExpiresAt string `json:"expires_at"`
 }
@@ -55,6 +58,7 @@ func (m *Machine) View() machineView {
 		Mode:      m.Mode,
 		BootMS:    m.BootMS,
 		Template:  m.Template,
+		Display:   m.Display,
 		CreatedAt: m.CreatedAt.UTC().Format(time.RFC3339),
 		ExpiresAt: m.ExpiresAt.UTC().Format(time.RFC3339),
 	}
@@ -108,6 +112,22 @@ func (mgr *Manager) Console(id string) (*Console, bool) {
 	return m.driver.Console(), true
 }
 
+// DialVsock opens a stream to a guest vsock port for the machine (used by the
+// /vnc bridge). Returns ErrNotFound if the machine is gone.
+func (mgr *Manager) DialVsock(id string, port int) (net.Conn, error) {
+	mgr.mu.Lock()
+	m, ok := mgr.machines[id]
+	drv := (*fcDriver)(nil)
+	if ok {
+		drv = m.driver
+	}
+	mgr.mu.Unlock()
+	if !ok || drv == nil {
+		return nil, ErrNotFound
+	}
+	return drv.DialVsock(port)
+}
+
 // List returns JSON views of all machines.
 func (mgr *Manager) List() []machineView {
 	mgr.mu.Lock()
@@ -129,12 +149,14 @@ func (mgr *Manager) Create(template string, ttlSeconds int) (*Machine, error) {
 		mgr.mu.Unlock()
 		return nil, ErrTooManyMachines
 	}
+	tpl := mgr.cfg.Template(template)
 	id := mgr.newID()
 	now := time.Now()
 	m := &Machine{
 		ID:        id,
 		Status:    "booting",
-		Template:  template,
+		Template:  tpl.Name,
+		Display:   tpl.Display,
 		CreatedAt: now,
 		ExpiresAt: now.Add(time.Duration(ttl) * time.Second),
 	}
@@ -142,17 +164,17 @@ func (mgr *Manager) Create(template string, ttlSeconds int) (*Machine, error) {
 	mgr.machines[id] = m
 	mgr.mu.Unlock()
 
-	// Use the template's prebuilt snapshot for a fast restore when present;
-	// bootMachine falls back to a cold boot if the restore fails.
+	// Use the template's prebuilt snapshot for a fast restore when eligible and
+	// present; bootMachine falls back to a cold boot if the restore fails.
 	snapDir := ""
-	if template != "" {
-		cand := filepath.Join(mgr.cfg.TemplatesDir, template)
+	if tpl.Snapshot {
+		cand := filepath.Join(mgr.cfg.TemplatesDir, tpl.Name)
 		if fileExists(filepath.Join(cand, "snapshot_file")) && fileExists(filepath.Join(cand, "mem_file")) {
 			snapDir = cand
 		}
 	}
 
-	drv, mode, bootMS, err := bootMachine(mgr.cfg, id, template, snapDir)
+	drv, mode, bootMS, err := bootMachine(mgr.cfg, id, tpl, snapDir)
 	if err != nil {
 		// Roll back the reservation.
 		mgr.mu.Lock()
@@ -213,7 +235,7 @@ func (mgr *Manager) Branch(id string) (*Machine, error) {
 		return nil, ErrSnapshotUnavailable
 	}
 
-	drv, mode, bootMS, err := bootMachine(mgr.cfg, newID, src.Template, snapDir)
+	drv, mode, bootMS, err := bootMachine(mgr.cfg, newID, mgr.cfg.Template(src.Template), snapDir)
 	if err != nil {
 		mgr.rollback(newID)
 		log.Printf("branch %s: restore failed: %v", id, err)

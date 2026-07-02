@@ -30,8 +30,9 @@ func NewServer(cfg Config, mgr *Manager) *Server {
 	s.mux.Handle("DELETE /v1/machines/{id}", s.auth(http.HandlerFunc(s.handleDelete)))
 	s.mux.Handle("POST /v1/machines/{id}/branch", s.auth(http.HandlerFunc(s.handleBranch)))
 
-	// WebSocket TTY. Auth is handled inside (accepts ?token= too).
+	// WebSocket TTY + VNC. Auth is handled inside (accepts ?token= too).
 	s.mux.HandleFunc("GET /v1/machines/{id}/tty", s.handleTTY)
+	s.mux.HandleFunc("GET /v1/machines/{id}/vnc", s.handleVNC)
 
 	return s
 }
