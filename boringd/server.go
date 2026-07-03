@@ -46,6 +46,10 @@ func NewServer(cfg Config, mgr *Manager) *Server {
 	// narration over a WebSocket.
 	s.mux.HandleFunc("GET /v1/machines/{id}/agent", s.handleAgent)
 
+	// Terminal agent: drive a shell machine toward a goal by typing commands
+	// into its serial console, streaming narration over a WebSocket.
+	s.mux.HandleFunc("GET /v1/machines/{id}/shell-agent", s.runShellAgent)
+
 	return s
 }
 

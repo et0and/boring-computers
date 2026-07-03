@@ -19,6 +19,12 @@
 	let shared = $state(false);
 	let copied = $state(false);
 
+	// AI command box: an agent that types commands into this shell to reach a goal.
+	let agentGoal = $state('');
+	let agentRunning = $state(false);
+	let agentLine = $state('');
+	let agentWs: WebSocket | null = null;
+
 	let host = $state<HTMLDivElement>();
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	let term: any = null;
@@ -129,8 +135,55 @@
 		setTimeout(() => (copied = false), 1600);
 	}
 
+	function runAI() {
+		const goal = agentGoal.trim();
+		if (!goal || agentRunning || !machine) return;
+		agentRunning = true;
+		agentLine = 'thinking…';
+		const w = new WebSocket(
+			wsUrl(`/v1/machines/${machine.id}/shell-agent?goal=${encodeURIComponent(goal)}`)
+		);
+		agentWs = w;
+		w.onmessage = (e) => {
+			let j: { type: string; text: string };
+			try {
+				j = JSON.parse(e.data);
+			} catch {
+				return;
+			}
+			if (j.type === 'done') {
+				agentLine = j.text || 'done ✓';
+				agentRunning = false;
+				w.close();
+			} else if (j.type === 'error') {
+				agentLine = '⚠ ' + j.text;
+				agentRunning = false;
+				w.close();
+			} else if (j.type === 'say' || j.type === 'action') {
+				agentLine = j.text;
+			}
+		};
+		w.onclose = () => {
+			agentRunning = false;
+		};
+	}
+
+	function aiKey(e: KeyboardEvent) {
+		if (e.key === 'Enter') {
+			e.preventDefault();
+			e.stopPropagation();
+			runAI();
+		}
+	}
+
 	export function close() {
 		stopCountdown();
+		try {
+			agentWs?.close();
+		} catch {
+			/* ignore */
+		}
+		agentWs = null;
 		if (onResize) window.removeEventListener('resize', onResize);
 		onResize = null;
 		try {
@@ -199,10 +252,42 @@
 		</div>
 		<!-- terminal -->
 		<div
-			class="rounded-b-geist-lg border border-t-0 border-line bg-[#0a0a0a] p-3"
+			class="border-x border-line bg-[#0a0a0a] p-3"
 			class:hidden={phase === 'error'}
+			class:rounded-b-geist-lg={phase !== 'live'}
+			class:border-b={phase !== 'live'}
 		>
 			<div bind:this={host} class="h-[420px] w-full"></div>
 		</div>
+
+		<!-- AI command box: tell the computer what to do, it drives the terminal -->
+		{#if phase === 'live'}
+			<div class="rounded-b-geist-lg border border-t-0 border-line bg-surface px-3 py-2.5">
+				<div class="flex items-center gap-2">
+					<span class="font-mono text-[11px] font-semibold text-accent">AI</span>
+					<input
+						bind:value={agentGoal}
+						onkeydown={aiKey}
+						disabled={agentRunning}
+						placeholder="tell the computer what to do — e.g. “build a snake game in python and run it”"
+						class="min-w-0 flex-1 bg-transparent font-mono text-[12px] text-ink placeholder:text-ink-faint focus:outline-none disabled:opacity-60"
+					/>
+					<button
+						onclick={runAI}
+						disabled={agentRunning || !agentGoal.trim()}
+						class="rounded-geist bg-ink px-2.5 py-1 font-mono text-[11px] text-black transition-opacity hover:opacity-90 disabled:opacity-40"
+					>
+						{agentRunning ? 'working…' : 'run'}
+					</button>
+				</div>
+				{#if agentLine}
+					<p class="mt-2 flex items-center gap-1.5 font-mono text-[11px] text-ink-muted">
+						{#if agentRunning}<span class="size-1.5 animate-pulse rounded-full bg-accent"
+							></span>{/if}
+						<span class="truncate">{agentLine}</span>
+					</p>
+				{/if}
+			</div>
+		{/if}
 	</div>
 {/if}

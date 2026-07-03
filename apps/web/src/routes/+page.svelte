@@ -24,7 +24,7 @@
 		{ s: 900, l: '15 min' }
 	];
 	let ttl = $state(60);
-	let net = $state(false); // internet on the shell (cold-boots; pip/npm/web work)
+	let net = $state(true); // default connected so the AI command box can pip/npm/fetch
 
 	const PRODUCTS = [
 		{
@@ -124,7 +124,9 @@
 						<span class="ml-0.5 inline-block h-3.5 w-1.5 animate-pulse bg-ink-subtle align-middle"
 						></span>
 					</button>
-					<span class="font-mono text-[11px] text-ink-faint">python3 · node · full Linux</span>
+					<span class="font-mono text-[11px] text-ink-faint"
+						>python3 · node · internet · an AI that drives it</span
+					>
 				</div>
 
 				<!-- session length -->
