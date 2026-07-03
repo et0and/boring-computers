@@ -191,7 +191,7 @@ func (mgr *Manager) Create(template string, ttlSeconds int, net bool, creatorIP 
 		}
 	}
 
-	drv, mode, bootMS, err := bootMachine(mgr.cfg, id, tpl, snapDir)
+	drv, mode, bootMS, err := bootMachine(mgr.cfg, id, tpl, snapDir, false)
 	if err != nil {
 		// Roll back the reservation (and the per-IP slot).
 		mgr.mu.Lock()
@@ -260,6 +260,8 @@ func (mgr *Manager) Branch(id, creatorIP string) (*Machine, error) {
 		return nil, ErrSnapshotUnavailable
 	}
 
+	srcHadNIC := srcDriver.tap != "" // fork of a networked machine
+
 	// Snapshot the source VM to a fresh directory.
 	snapDir, err := srcDriver.CreateSnapshot(newID)
 	if err != nil {
@@ -268,7 +270,7 @@ func (mgr *Manager) Branch(id, creatorIP string) (*Machine, error) {
 		return nil, ErrSnapshotUnavailable
 	}
 
-	drv, mode, bootMS, err := bootMachine(mgr.cfg, newID, mgr.cfg.Template(src.Template), snapDir)
+	drv, mode, bootMS, err := bootMachine(mgr.cfg, newID, mgr.cfg.Template(src.Template), snapDir, srcHadNIC)
 	if err != nil {
 		mgr.rollback(newID)
 		log.Printf("branch %s: restore failed: %v", id, err)
@@ -277,6 +279,34 @@ func (mgr *Manager) Branch(id, creatorIP string) (*Machine, error) {
 
 	if !mgr.cfg.JailerEnable {
 		mgr.cgroups.Place(drv.PID(), newID, mgr.cfg.Template(src.Template))
+	}
+
+	// A restored desktop's framebuffer is stale until something repaints. xrefresh
+	// Exposes the classic X apps; chromium/xterm only redraw on real events, so
+	// also nudge the pointer + a zero-net scroll to wake them.
+	if mgr.cfg.Template(src.Template).Display {
+		if drv.console != nil {
+			go func() {
+				time.Sleep(500 * time.Millisecond)
+				drv.console.Write([]byte("DISPLAY=:0 xrefresh 2>/dev/null\n"))
+			}()
+		}
+		go func() {
+			time.Sleep(1200 * time.Millisecond)
+			guest, err := mgr.DialVsock(newID, VsockPort)
+			if err != nil {
+				return
+			}
+			defer guest.Close()
+			cli, err := newRFBClient(guest)
+			if err != nil {
+				return
+			}
+			cli.MoveMouse(450, 300)
+			cli.Scroll(450, 300, "down", 1)
+			cli.Scroll(450, 300, "up", 1)
+			cli.MoveMouse(455, 305)
+		}()
 	}
 
 	mgr.mu.Lock()

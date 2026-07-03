@@ -188,7 +188,7 @@ func (d *fcDriver) PID() int {
 // configure it over the API socket, start it (or restore a snapshot), and time
 // the boot up to the readiness marker. snapDir, if non-empty, points at a
 // directory containing snapshot_file + mem_file to restore from.
-func bootMachine(cfg Config, id string, tpl Template, snapDir string) (*fcDriver, string, int64, error) {
+func bootMachine(cfg Config, id string, tpl Template, snapDir string, restoreNet bool) (*fcDriver, string, int64, error) {
 	if err := os.MkdirAll(cfg.RunDir, 0o755); err != nil {
 		return nil, "", 0, fmt.Errorf("mkdir run dir: %w", err)
 	}
@@ -323,6 +323,22 @@ func bootMachine(cfg Config, id string, tpl Template, snapDir string) (*fcDriver
 
 	// Best-effort snapshot restore.
 	if snapDir != "" {
+		// If the source had a NIC (a fork of a connected/desktop machine), give
+		// the fork its own tap up front — detached from the bridge, since it
+		// resumes on the source's MAC/IP and must be re-addressed before it can
+		// safely join the network (the caller does that).
+		if restoreNet && cfg.NetEnable {
+			tap := tapName(d.id)
+			uid := 0
+			if d.jailed {
+				uid = d.cfg.JailerUID
+			}
+			if err := makeTap(tap, uid); err != nil {
+				d.Close()
+				return nil, "", 0, fmt.Errorf("fork tap: %w", err)
+			}
+			d.tap = tap
+		}
 		// A restored guest resumes past the BORING_READY marker (it already
 		// printed it before being snapshotted), so we time the restore call
 		// itself rather than waiting for a marker that will never reappear.
@@ -331,7 +347,7 @@ func bootMachine(cfg Config, id string, tpl Template, snapDir string) (*fcDriver
 			log.Printf("machine %s: snapshot restore failed, cold booting: %v", id, err)
 			// The child may be in a bad state; restart cleanly as cold boot.
 			d.Close()
-			return bootMachine(cfg, id, tpl, "")
+			return bootMachine(cfg, id, tpl, "", false)
 		}
 		mode = "snapshot"
 		bootMS = time.Since(t).Milliseconds()
@@ -440,14 +456,22 @@ func (d *fcDriver) restoreSnapshot(snapDir, overlay string) error {
 	// overlay (the snapshot baked the template's rootfs path), then resume. This
 	// gives the fork an isolated, writable rootfs identical in content to the
 	// template — so the resumed guest's in-memory fs state stays consistent.
-	if err := d.apiPut("/snapshot/load", map[string]any{
+	load := map[string]any{
 		"snapshot_path": apiSnap,
 		"mem_backend": map[string]any{
 			"backend_type": "File",
 			"backend_path": apiMem,
 		},
 		"resume_vm": false,
-	}); err != nil {
+	}
+	// A fork restores its NIC onto its own fresh tap (the snapshot baked the
+	// source's tap name).
+	if d.tap != "" {
+		load["network_overrides"] = []any{
+			map[string]any{"iface_id": "eth0", "host_dev_name": d.tap},
+		}
+	}
+	if err := d.apiPut("/snapshot/load", load); err != nil {
 		return err
 	}
 	if err := d.apiPatch("/drives/rootfs", map[string]any{
@@ -469,13 +493,21 @@ func (d *fcDriver) CreateSnapshot(newID string) (string, error) {
 	snapFile := filepath.Join(snapDir, "snapshot_file")
 	memFile := filepath.Join(snapDir, "mem_file")
 
+	// Firecracker writes to paths in its own filesystem view. Jailed: it can only
+	// write inside the chroot, so use chroot-relative paths and move the artefacts
+	// out afterwards.
+	apiSnap, apiMem := snapFile, memFile
+	if d.jailed {
+		apiSnap, apiMem = "/snap", "/mem"
+	}
+
 	if err := d.apiPatch("/vm", map[string]any{"state": "Paused"}); err != nil {
 		return "", fmt.Errorf("pause: %w", err)
 	}
 	if err := d.apiPut("/snapshot/create", map[string]any{
 		"snapshot_type": "Full",
-		"snapshot_path": snapFile,
-		"mem_file_path": memFile,
+		"snapshot_path": apiSnap,
+		"mem_file_path": apiMem,
 	}); err != nil {
 		// Try to resume before returning so the source stays alive.
 		_ = d.apiPatch("/vm", map[string]any{"state": "Resumed"})
@@ -484,6 +516,22 @@ func (d *fcDriver) CreateSnapshot(newID string) (string, error) {
 	}
 	if err := d.apiPatch("/vm", map[string]any{"state": "Resumed"}); err != nil {
 		log.Printf("machine %s: resume after snapshot failed: %v", d.id, err)
+	}
+
+	// Move the snapshot + memory files out of the source's chroot into snapDir.
+	if d.jailed {
+		for _, m := range [][2]string{
+			{filepath.Join(d.chroot, "snap"), snapFile},
+			{filepath.Join(d.chroot, "mem"), memFile},
+		} {
+			if err := os.Rename(m[0], m[1]); err != nil {
+				if cerr := copyReflink(m[0], m[1]); cerr != nil {
+					_ = os.RemoveAll(snapDir)
+					return "", fmt.Errorf("stage snapshot out of jail: %v / %v", err, cerr)
+				}
+				_ = os.Remove(m[0])
+			}
+		}
 	}
 
 	// Give the child a copy of the current rootfs so the fork is independent.
