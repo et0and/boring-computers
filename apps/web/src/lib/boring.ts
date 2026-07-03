@@ -16,6 +16,16 @@ export function wsUrl(path: string): string {
 	return `${proto}://${location.host}/boring${path}`;
 }
 
+/** Fork a running machine: clones its live state into a new machine. */
+export async function branchMachine(id: string): Promise<Machine> {
+	const res = await fetch(`${apiBase}/v1/machines/${id}/branch`, { method: 'POST' });
+	if (!res.ok) {
+		const j = await res.json().catch(() => ({}));
+		throw new Error(j.error ?? `fork failed (${res.status})`);
+	}
+	return (await res.json()) as Machine;
+}
+
 /** Host of the boringd endpoint, used as the base for preview subdomains. */
 export const previewBase = (() => {
 	try {

@@ -35,7 +35,8 @@ cat > /etc/dnsmasq.d/boring.conf <<EOF
 interface=${BR}
 bind-interfaces
 except-interface=lo
-dhcp-range=${SUBNET}.10,${SUBNET}.250,255.255.255.0,1h
+# .200-.250 is reserved for statically-addressed forks (boringd assigns those).
+dhcp-range=${SUBNET}.10,${SUBNET}.199,255.255.255.0,1h
 dhcp-option=option:router,${SUBNET}.1
 dhcp-option=option:dns-server,${SUBNET}.1
 server=1.1.1.1

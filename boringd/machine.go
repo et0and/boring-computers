@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"log"
 	"net"
 	"path/filepath"
@@ -110,6 +111,45 @@ func (mgr *Manager) Get(id string) (machineView, bool) {
 
 // Console returns the live console for a machine's guest serial, under the lock
 // so the driver field read never races with Create/Branch setting it.
+// machineIP returns a machine's guest IP: forks are re-addressed to a static IP
+// (driver.ip); everyone else gets it from the DHCP lease file.
+func (mgr *Manager) machineIP(id string) (string, bool) {
+	mgr.mu.Lock()
+	m, ok := mgr.machines[id]
+	var ip string
+	if ok && m.driver != nil {
+		ip = m.driver.ip
+	}
+	mgr.mu.Unlock()
+	if !ok {
+		return "", false
+	}
+	if ip != "" {
+		return ip, true
+	}
+	return guestIP(id, mgr.cfg.LeasesPath)
+}
+
+// allocForkIP picks a free static IP for a fork from the top of the subnet
+// (.200–.250, above the dnsmasq DHCP range), avoiding other forks' IPs.
+func (mgr *Manager) allocForkIP() string {
+	used := map[string]bool{}
+	mgr.mu.Lock()
+	for _, m := range mgr.machines {
+		if m.driver != nil && m.driver.ip != "" {
+			used[m.driver.ip] = true
+		}
+	}
+	mgr.mu.Unlock()
+	for x := 200; x <= 250; x++ {
+		ip := fmt.Sprintf("%s.%d", mgr.cfg.NetSubnet, x)
+		if !used[ip] {
+			return ip
+		}
+	}
+	return ""
+}
+
 func (mgr *Manager) Console(id string) (*Console, bool) {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
@@ -281,31 +321,48 @@ func (mgr *Manager) Branch(id, creatorIP string) (*Machine, error) {
 		mgr.cgroups.Place(drv.PID(), newID, mgr.cfg.Template(src.Template))
 	}
 
-	// A restored desktop's framebuffer is stale until something repaints. xrefresh
-	// Exposes the classic X apps; chromium/xterm only redraw on real events, so
-	// also nudge the pointer + a zero-net scroll to wake them.
-	if mgr.cfg.Template(src.Template).Display {
-		if drv.console != nil {
-			go func() {
-				time.Sleep(500 * time.Millisecond)
-				drv.console.Write([]byte("DISPLAY=:0 xrefresh 2>/dev/null\n"))
-			}()
+	tpl := mgr.cfg.Template(src.Template)
+
+	// A networked fork resumed on the source's MAC/IP. Give it a fresh MAC +
+	// static IP while its tap is still off the bridge, then attach it — so it
+	// joins the network cleanly and never collides with the source.
+	var reip string
+	if srcHadNIC && mgr.cfg.NetEnable {
+		if forkIP := mgr.allocForkIP(); forkIP != "" {
+			drv.ip = forkIP
+			reip = fmt.Sprintf("ip link set eth0 down; ip link set eth0 address %s; ip link set eth0 up; ip addr flush dev eth0; ip addr add %s/24 dev eth0; ip route replace default via %s.1; printf 'nameserver 1.1.1.1\\n' > /etc/resolv.conf\n",
+				guestMAC(newID), forkIP, mgr.cfg.NetSubnet)
 		}
+	}
+
+	// After restore, re-address the NIC (above) and repaint the desktop: xrefresh
+	// Exposes the classic X apps; chromium needs a real reload to re-render.
+	if (reip != "" || tpl.Display) && drv.console != nil {
 		go func() {
-			time.Sleep(1200 * time.Millisecond)
-			guest, err := mgr.DialVsock(newID, VsockPort)
-			if err != nil {
-				return
+			if reip != "" {
+				time.Sleep(700 * time.Millisecond)
+				drv.console.Write([]byte(reip))
+				time.Sleep(600 * time.Millisecond)
+				if drv.tap != "" {
+					attachTapBridge(drv.tap, mgr.cfg.NetBridge)
+				}
 			}
-			defer guest.Close()
-			cli, err := newRFBClient(guest)
-			if err != nil {
-				return
+			if tpl.Display {
+				drv.console.Write([]byte("DISPLAY=:0 xrefresh 2>/dev/null\n"))
+				time.Sleep(400 * time.Millisecond)
+				if guest, err := mgr.DialVsock(newID, VsockPort); err == nil {
+					defer guest.Close()
+					if cli, err := newRFBClient(guest); err == nil {
+						cli.Click(1, 450, 83) // focus chromium
+						time.Sleep(150 * time.Millisecond)
+						cli.keyEvent(true, 0xffe3) // Ctrl down
+						cli.keyEvent(true, 0x72)   // r
+						cli.keyEvent(false, 0x72)
+						cli.keyEvent(false, 0xffe3) // Ctrl up
+						cli.MoveMouse(455, 305)
+					}
+				}
 			}
-			cli.MoveMouse(450, 300)
-			cli.Scroll(450, 300, "down", 1)
-			cli.Scroll(450, 300, "up", 1)
-			cli.MoveMouse(455, 305)
 		}()
 	}
 

@@ -53,6 +53,7 @@ type Config struct {
 	// host side (bridge, dnsmasq, egress firewall) is set up by net-setup.sh.
 	NetEnable bool   // BORING_NET=="1"
 	NetBridge string // bridge to attach taps to (default boring0)
+	NetSubnet string // guest /24 prefix, e.g. 10.200.0 (gateway .1)
 
 	// Preview: expose a guest port at <id>--<port>.<PreviewBase>.
 	PreviewBase string // e.g. 162-43-188-89.sslip.io ("" disables previews)
@@ -106,6 +107,7 @@ func LoadConfig() Config {
 		PidsMax:             envInt("BORING_PIDS_MAX", 512),
 		NetEnable:           os.Getenv("BORING_NET") == "1",
 		NetBridge:           envStr("BORING_NET_BRIDGE", "boring0"),
+		NetSubnet:           envStr("BORING_NET_SUBNET", "10.200.0"),
 		PreviewBase:         envStr("BORING_PREVIEW_BASE", "162-43-188-89.sslip.io"),
 		LeasesPath:          envStr("BORING_LEASES", "/var/lib/misc/dnsmasq.leases"),
 		OpenRouterKey:       os.Getenv("BORING_OPENROUTER_KEY"),

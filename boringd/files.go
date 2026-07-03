@@ -60,7 +60,7 @@ func (s *Server) guestFor(id string) (*Console, string, bool) {
 	if !ok {
 		return nil, "", false
 	}
-	ip, ok := guestIP(id, s.cfg.LeasesPath)
+	ip, ok := s.mgr.machineIP(id)
 	if !ok {
 		return nil, "", false
 	}

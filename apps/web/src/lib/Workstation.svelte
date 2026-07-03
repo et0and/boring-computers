@@ -1,7 +1,15 @@
 <script lang="ts">
 	import '@xterm/xterm/css/xterm.css';
 	import { onMount } from 'svelte';
-	import { apiBase, wsUrl, createMachine, getMachine, previewUrl, type Machine } from '$lib/boring';
+	import {
+		apiBase,
+		wsUrl,
+		createMachine,
+		getMachine,
+		branchMachine,
+		previewUrl,
+		type Machine
+	} from '$lib/boring';
 
 	// One computer, everything on it: a live desktop (browser + GUI over VNC), its
 	// serial shell as a real terminal (coding agents preinstalled), and a prompt
@@ -108,6 +116,24 @@
 		e.preventDefault();
 		dragOver = false;
 		if (e.dataTransfer?.files?.length) void uploadFiles(e.dataTransfer.files);
+	}
+
+	// Fork: clone this live computer into a new one, opened in a new tab.
+	let forking = $state(false);
+	async function fork() {
+		if (!machine || forking) return;
+		forking = true;
+		fileMsg = '⑂ cloning this computer…';
+		try {
+			const f = await branchMachine(machine.id);
+			window.open(`${location.origin}/c/${f.id}`, '_blank');
+			fileMsg = '⑂ forked → opened in a new tab';
+		} catch (e) {
+			fileMsg = '⚠ ' + (e instanceof Error ? e.message : 'fork failed');
+		} finally {
+			forking = false;
+			setTimeout(() => (fileMsg = ''), 5000);
+		}
 	}
 
 	let countdown: ReturnType<typeof setInterval> | null = null;
@@ -413,6 +439,13 @@
 					>
 				</span>
 				<span class="tabular-nums">{remaining}s</span>
+				<button
+					class="text-ink-subtle transition-colors hover:text-ink disabled:opacity-40"
+					onclick={fork}
+					disabled={forking}
+					title="Clone this running computer into a new one"
+					>{forking ? 'forking…' : 'fork ⑂'}</button
+				>
 				<button class="text-ink-subtle transition-colors hover:text-ink" onclick={copyShare}
 					>{copied ? 'copied ✓' : 'share'}</button
 				>

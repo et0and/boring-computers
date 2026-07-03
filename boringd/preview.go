@@ -71,7 +71,7 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request, id string
 		http.Error(w, "this computer is gone", http.StatusNotFound)
 		return
 	}
-	ip, ok := guestIP(id, s.cfg.LeasesPath)
+	ip, ok := s.mgr.machineIP(id)
 	if !ok {
 		http.Error(w, "this computer isn't on the network (previews need a connected machine)", http.StatusBadGateway)
 		return

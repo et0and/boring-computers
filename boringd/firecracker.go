@@ -162,6 +162,7 @@ type fcDriver struct {
 	overlay  string
 	vsockUDS string // host path to the vsock UDS (set when template has a display)
 	tap      string // host tap device name (set when networking is enabled)
+	ip       string // guest IP (set for forks, which are re-addressed statically)
 	apiClt   *http.Client
 
 	// Jailer mode: firecracker runs chrooted + unprivileged. Paths handed to the
