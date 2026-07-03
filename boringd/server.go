@@ -24,6 +24,9 @@ func NewServer(cfg Config, mgr *Manager) *Server {
 	// Open route: health check (never requires auth).
 	s.mux.HandleFunc("GET /healthz", s.handleHealthz)
 
+	// Caddy on-demand-TLS gate for preview subdomains (open, internal).
+	s.mux.HandleFunc("GET /internal/tls-check", s.handleTLSCheck)
+
 	// Inference gateway (OpenAI-compatible; keys are server-side, per-IP capped).
 	s.mux.Handle("POST /v1/chat/completions", s.auth(http.HandlerFunc(s.handleChatCompletions)))
 	s.mux.Handle("GET /v1/models", s.auth(http.HandlerFunc(s.handleModels)))
@@ -54,6 +57,12 @@ func NewServer(cfg Config, mgr *Manager) *Server {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Preview hosts (<id>--<port>.<base>) bypass the API entirely and reverse-
+	// proxy straight to the guest's port.
+	if id, port, ok := s.previewTarget(r.Host); ok {
+		s.handlePreview(w, r, id, port)
+		return
+	}
 	// CORS so a browser on the deployed site's origin can call this endpoint.
 	if o := s.cfg.CORSOrigin; o != "" {
 		w.Header().Set("Access-Control-Allow-Origin", o)

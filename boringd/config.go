@@ -54,6 +54,10 @@ type Config struct {
 	NetEnable bool   // BORING_NET=="1"
 	NetBridge string // bridge to attach taps to (default boring0)
 
+	// Preview: expose a guest port at <id>--<port>.<PreviewBase>.
+	PreviewBase string // e.g. 162-43-188-89.sslip.io ("" disables previews)
+	LeasesPath  string // dnsmasq lease file, for guest IP lookup
+
 	// Inference gateway: an OpenAI-compatible /v1/chat/completions that routes
 	// Claude models to Anthropic natively and everything else to OpenRouter.
 	// Enabled when either key is set. Both may be set at once.
@@ -102,6 +106,8 @@ func LoadConfig() Config {
 		PidsMax:             envInt("BORING_PIDS_MAX", 512),
 		NetEnable:           os.Getenv("BORING_NET") == "1",
 		NetBridge:           envStr("BORING_NET_BRIDGE", "boring0"),
+		PreviewBase:         envStr("BORING_PREVIEW_BASE", "162-43-188-89.sslip.io"),
+		LeasesPath:          envStr("BORING_LEASES", "/var/lib/misc/dnsmasq.leases"),
 		OpenRouterKey:       os.Getenv("BORING_OPENROUTER_KEY"),
 		InferenceMaxTokens:  envInt("BORING_INFER_MAX_TOKENS", 1024),
 		InferenceRatePerMin: envInt("BORING_INFER_RATE", 20),

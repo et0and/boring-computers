@@ -52,6 +52,10 @@ iptables -t nat -C POSTROUTING -s "$CIDR" -o "$UPLINK" -j MASQUERADE 2>/dev/null
   || iptables -t nat -A POSTROUTING -s "$CIDR" -o "$UPLINK" -j MASQUERADE
 
 # --- INPUT: guests may only reach the host for DHCP + DNS -------------------
+# Allow replies to host-initiated connections (e.g. the preview proxy reaching a
+# guest's port) — without this the blanket DROP below kills those return packets.
+iptables -C INPUT -i "$BR" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null \
+  || iptables -I INPUT -i "$BR" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 iptables -C INPUT -i "$BR" -p udp -m multiport --dports 67,53 -j ACCEPT 2>/dev/null \
   || iptables -I INPUT -i "$BR" -p udp -m multiport --dports 67,53 -j ACCEPT
 iptables -C INPUT -i "$BR" -p tcp --dport 53 -j ACCEPT 2>/dev/null \

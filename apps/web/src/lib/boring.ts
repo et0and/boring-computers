@@ -16,6 +16,20 @@ export function wsUrl(path: string): string {
 	return `${proto}://${location.host}/boring${path}`;
 }
 
+/** Host of the boringd endpoint, used as the base for preview subdomains. */
+export const previewBase = (() => {
+	try {
+		return new URL(PUB || 'https://162-43-188-89.sslip.io').host;
+	} catch {
+		return '162-43-188-89.sslip.io';
+	}
+})();
+
+/** Public HTTPS URL for a port running inside a machine: <id>--<port>.<base>. */
+export function previewUrl(id: string, port: number): string {
+	return `https://${id}--${port}.${previewBase}/`;
+}
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**

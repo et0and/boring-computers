@@ -1,7 +1,7 @@
 <script lang="ts">
 	import '@xterm/xterm/css/xterm.css';
 	import { onMount } from 'svelte';
-	import { apiBase, wsUrl, createMachine, getMachine, type Machine } from '$lib/boring';
+	import { apiBase, wsUrl, createMachine, getMachine, previewUrl, type Machine } from '$lib/boring';
 
 	// One computer, everything on it: a live desktop (browser + GUI over VNC), its
 	// serial shell as a real terminal (coding agents preinstalled), and a prompt
@@ -41,6 +41,17 @@
 	let agentRunning = $state(false);
 	let agentLine = $state('');
 	let agentWs: WebSocket | null = null;
+
+	// Preview: open a port running inside this computer at a public URL.
+	let previewPort = $state('');
+	function openPreview() {
+		const p = parseInt(previewPort, 10);
+		if (!machine || !Number.isInteger(p) || p < 1 || p > 65535) return;
+		window.open(previewUrl(machine.id, p), '_blank', 'noopener');
+	}
+	function previewKey(e: KeyboardEvent) {
+		if (e.key === 'Enter') openPreview();
+	}
 
 	let countdown: ReturnType<typeof setInterval> | null = null;
 	let onResize: (() => void) | null = null;
@@ -157,7 +168,8 @@
 			if (!term) return;
 			term.reset();
 			term.write(
-				'\x1b[38;5;244mboring computers · desktop shell · node · claude · codex · cursor · pi\x1b[0m\r\n'
+				'\x1b[38;5;244mboring computers · desktop shell · node · claude · codex · cursor · pi\r\n' +
+					'run a server (e.g. python3 -m http.server 8000) then use "preview ↗" up top to open it\x1b[0m\r\n'
 			);
 			if (tty?.readyState === WebSocket.OPEN) tty.send(enc.encode('\n'));
 		}, 500);
@@ -313,6 +325,18 @@
 		</div>
 		<div class="flex items-center gap-3 text-ink-faint">
 			{#if phase === 'live'}
+				<span class="flex items-center gap-1" title="Open a port running inside this computer">
+					<input
+						bind:value={previewPort}
+						onkeydown={previewKey}
+						placeholder="port"
+						inputmode="numeric"
+						class="w-11 rounded-[4px] border border-line bg-black px-1 py-0.5 text-right text-ink placeholder:text-ink-faint focus:border-white/25 focus:outline-none"
+					/>
+					<button class="text-ink-subtle transition-colors hover:text-ink" onclick={openPreview}
+						>preview ↗</button
+					>
+				</span>
 				<span class="tabular-nums">{remaining}s</span>
 				<button class="text-ink-subtle transition-colors hover:text-ink" onclick={copyShare}
 					>{copied ? 'copied ✓' : 'share'}</button
