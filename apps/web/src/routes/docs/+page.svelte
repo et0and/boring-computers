@@ -113,6 +113,31 @@ await boring.destroyMachine(vm.id);`)}
 		<code class="text-ink">branchMachine(id)</code>.
 	</p>
 
+	<h2 class="mt-12 text-[15px] font-semibold text-ink">MCP server</h2>
+	<p class="mt-2 text-[13px] leading-relaxed text-ink-muted">
+		Let any AI — Claude Desktop, Cursor, … — spin up and drive a computer over the
+		<a
+			href="https://modelcontextprotocol.io"
+			target="_blank"
+			rel="noopener"
+			class="text-accent hover:underline">Model Context Protocol</a
+		>. Add <code class="text-ink">@boring/mcp</code> to your MCP client:
+	</p>
+	<div class="mt-3">
+		{@render code(`{
+  "mcpServers": {
+    "boring-computers": { "command": "npx", "args": ["-y", "@boring/mcp"] }
+  }
+}`)}
+	</div>
+	<p class="mt-3 text-[13px] leading-relaxed text-ink-muted">
+		Tools: <code class="text-ink">launch_computer</code>,
+		<code class="text-ink">run_task</code> (plain-English task → an agent writes + runs the code,
+		returns a live URL), <code class="text-ink">screenshot</code>,
+		<code class="text-ink">preview_url</code>, <code class="text-ink">fork_computer</code>,
+		<code class="text-ink">stop_computer</code>.
+	</p>
+
 	<div class="mt-16 border-t border-line pt-6">
 		<a
 			href={resolve('/')}

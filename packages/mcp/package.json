@@ -1,0 +1,19 @@
+{
+	"name": "@boring/mcp",
+	"version": "0.1.0",
+	"description": "Model Context Protocol server for boring computers — let any AI spin up and drive a real computer.",
+	"type": "module",
+	"bin": {
+		"boring-mcp": "index.mjs"
+	},
+	"files": [
+		"index.mjs",
+		"README.md"
+	],
+	"engines": {
+		"node": ">=20"
+	},
+	"dependencies": {
+		"@modelcontextprotocol/sdk": "^1.29.0"
+	}
+}
