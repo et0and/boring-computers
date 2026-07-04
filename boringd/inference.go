@@ -91,6 +91,10 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": "a lot of requests right now — slow down a moment"})
 		return
 	}
+	if !s.inferBudget.allow() {
+		writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": "the daily inference limit has been reached — try again tomorrow"})
+		return
+	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, 512*1024))
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "couldn't read body"})

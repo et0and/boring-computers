@@ -82,6 +82,10 @@ type Config struct {
 	InferenceMaxTokens  int    // hard cap on max_tokens per request (cost guard)
 	InferenceRatePerMin int    // per-IP requests/min (cost guard)
 
+	// Global daily circuit breakers on the shared Anthropic key (0 disables).
+	DailyAgentMax int // agent runs (computer-use + terminal) per UTC day
+	DailyInferMax int // inference requests per UTC day
+
 	// Computer-use agent: an AI driving the GUI desktop, streamed to the browser.
 	// AnthropicKey also backs the gateway's Claude path.
 	AnthropicKey       string // BORING_ANTHROPIC_KEY; empty disables the agent
@@ -140,6 +144,8 @@ func LoadConfig() Config {
 		OpenRouterKey:       os.Getenv("BORING_OPENROUTER_KEY"),
 		InferenceMaxTokens:  envInt("BORING_INFER_MAX_TOKENS", 1024),
 		InferenceRatePerMin: envInt("BORING_INFER_RATE", 20),
+		DailyAgentMax:       envInt("BORING_DAILY_AGENT_MAX", 200),
+		DailyInferMax:       envInt("BORING_DAILY_INFER_MAX", 3000),
 		AnthropicKey:        os.Getenv("BORING_ANTHROPIC_KEY"),
 		AgentModel:          envStr("BORING_AGENT_MODEL", "claude-opus-4-8"),
 		AgentMaxSteps:       envInt("BORING_AGENT_MAX_STEPS", 18),

@@ -80,6 +80,11 @@ func (s *Server) runAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	defer atomic.AddInt32(&agentRuns, -1)
 
+	if !s.agentBudget.allow() {
+		send("error", "the daily AI limit has been reached — please try again tomorrow")
+		return
+	}
+
 	// Detect the browser closing the socket (stop button / navigation away).
 	stop := make(chan struct{})
 	go func() {

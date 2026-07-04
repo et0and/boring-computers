@@ -11,17 +11,19 @@ import (
 
 // Server wires the HTTP mux, auth middleware and JSON handlers.
 type Server struct {
-	cfg        Config
-	mgr        *Manager
-	mux        *http.ServeMux
-	infer      *inferLimiter
-	storage    *Storage      // nil when no S3 endpoint is configured
-	volLimiter *inferLimiter // per-IP volume-creation cap
+	cfg         Config
+	mgr         *Manager
+	mux         *http.ServeMux
+	infer       *inferLimiter
+	storage     *Storage      // nil when no S3 endpoint is configured
+	volLimiter  *inferLimiter // per-IP volume-creation cap
+	agentBudget *dailyLimit   // global daily cap on agent runs
+	inferBudget *dailyLimit   // global daily cap on inference requests
 }
 
 // NewServer builds the router with all routes from the contract.
 func NewServer(cfg Config, mgr *Manager) *Server {
-	s := &Server{cfg: cfg, mgr: mgr, mux: http.NewServeMux(), infer: newInferLimiter(cfg.InferenceRatePerMin), volLimiter: newInferLimiter(cfg.VolumeRatePerMin)}
+	s := &Server{cfg: cfg, mgr: mgr, mux: http.NewServeMux(), infer: newInferLimiter(cfg.InferenceRatePerMin), volLimiter: newInferLimiter(cfg.VolumeRatePerMin), agentBudget: newDailyLimit(cfg.DailyAgentMax), inferBudget: newDailyLimit(cfg.DailyInferMax)}
 	if st, err := newStorage(cfg); err != nil {
 		log.Printf("storage disabled: %v", err)
 	} else if st != nil {

@@ -90,6 +90,8 @@ The WebSocket route also accepts `?token=<token>`. `/healthz` is always open.
 | `BORING_AGENT_MAX_CONCURRENT` | `2` | simultaneous agent runs (cost guard) |
 | `BORING_INFER_MAX_TOKENS` | `1024` | `max_tokens` clamp on the gateway |
 | `BORING_INFER_RATE` | `20` | gateway requests/min per IP |
+| `BORING_DAILY_AGENT_MAX` | `200` | global daily cap on agent runs (cost circuit breaker; 0 disables) |
+| `BORING_DAILY_INFER_MAX` | `3000` | global daily cap on inference requests (0 disables) |
 | `BORING_S3_ENDPOINT` | *(unset)* | S3 host:port for volumes (MinIO/Latitude); unset disables storage |
 | `BORING_S3_KEY` / `BORING_S3_SECRET` | *(unset)* | S3 access key + secret |
 | `BORING_S3_BUCKET` | `boring-volumes` | bucket that holds all volumes |
