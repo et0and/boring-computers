@@ -203,6 +203,19 @@ func (mgr *Manager) List() []machineView {
 	return out
 }
 
+// hasMemoryFor reports whether booting this template would keep the host above
+// its memory reserve, so the box hits capacity gracefully instead of OOMing.
+func (mgr *Manager) hasMemoryFor(tpl Template) bool {
+	if mgr.cfg.MemReserveMB <= 0 {
+		return true
+	}
+	need := tpl.MemSizeMB
+	if need <= 0 {
+		need = mgr.cfg.MemSizeMB
+	}
+	return availableMemoryMB()-need >= mgr.cfg.MemReserveMB
+}
+
 // Create boots a new microVM from the given template with the (clamped) TTL.
 // creatorIP is used for per-IP rate/concurrency limiting on the public endpoint.
 func (mgr *Manager) Create(template string, ttlSeconds int, net bool, creatorIP string) (*Machine, error) {
@@ -223,13 +236,13 @@ func (mgr *Manager) Create(template string, ttlSeconds int, net bool, creatorIP 
 	}
 
 	// Reserve a slot + id under the lock, but perform the (slow) boot outside it.
+	tpl := mgr.cfg.Template(template)
 	mgr.mu.Lock()
-	if len(mgr.machines) >= mgr.cfg.MaxMachines {
+	if len(mgr.machines) >= mgr.cfg.MaxMachines || !mgr.hasMemoryFor(tpl) {
 		mgr.mu.Unlock()
 		mgr.limiter.Release(creatorIP)
 		return nil, ErrTooManyMachines
 	}
-	tpl := mgr.cfg.Template(template)
 	id := mgr.newID()
 	now := time.Now()
 	m := &Machine{

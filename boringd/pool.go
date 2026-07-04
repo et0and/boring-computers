@@ -33,7 +33,7 @@ func (mgr *Manager) warmDesktop() {
 	tpl := mgr.cfg.Template("desktop")
 
 	mgr.mu.Lock()
-	if len(mgr.machines) >= mgr.cfg.MaxMachines {
+	if len(mgr.machines) >= mgr.cfg.MaxMachines || !mgr.hasMemoryFor(tpl) {
 		mgr.mu.Unlock()
 		return
 	}

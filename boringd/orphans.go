@@ -58,6 +58,25 @@ func reapOrphans(cfg Config) {
 	}
 }
 
+// availableMemoryMB reads MemAvailable from /proc/meminfo (fails open large).
+func availableMemoryMB() int {
+	data, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return 1 << 30
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "MemAvailable:") {
+			f := strings.Fields(line)
+			if len(f) >= 2 {
+				if kb, err := strconv.Atoi(f[1]); err == nil {
+					return kb / 1024
+				}
+			}
+		}
+	}
+	return 1 << 30
+}
+
 // pidsOf returns the pids of processes whose comm exactly matches name, by
 // reading /proc (no dependency on pgrep being installed).
 func pidsOf(name string) []int {

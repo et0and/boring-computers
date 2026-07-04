@@ -22,6 +22,10 @@ type Config struct {
 	// MaxMachines caps the number of live machines; creation returns 429 when full.
 	MaxMachines int
 
+	// MemReserveMB is host RAM kept free — boot is refused if a new VM would eat
+	// into it, so the box gracefully hits capacity instead of OOMing. 0 disables.
+	MemReserveMB int
+
 	// Fixed host paths (created by bootstrap).
 	FirecrackerBin string // /opt/boring/bin/firecracker
 	KernelPath     string // /opt/boring/kernel/vmlinux
@@ -108,6 +112,7 @@ func LoadConfig() Config {
 		Token:               os.Getenv("BORING_TOKEN"),
 		CORSOrigin:          envStr("BORING_CORS_ORIGIN", "*"),
 		MaxMachines:         envInt("BORING_MAX", 20),
+		MemReserveMB:        envInt("BORING_MEM_RESERVE_MB", 3072),
 		FirecrackerBin:      envStr("BORING_FIRECRACKER_BIN", "/opt/boring/bin/firecracker"),
 		KernelPath:          envStr("BORING_KERNEL", "/opt/boring/kernel/vmlinux"),
 		BaseRootfs:          envStr("BORING_ROOTFS", "/opt/boring/rootfs/rootfs.ext4"),

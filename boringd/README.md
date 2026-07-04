@@ -72,6 +72,7 @@ The WebSocket route also accepts `?token=<token>`. `/healthz` is always open.
 | --- | --- | --- |
 | `BORING_TOKEN` | *(unset)* | Bearer token; empty disables auth |
 | `BORING_MAX` | `20` | max live machines (429 when full) |
+| `BORING_MEM_RESERVE_MB` | `3072` | host RAM kept free; boot refused (429) rather than OOM the box (0 disables) |
 | `BORING_FIRECRACKER_BIN` | `/opt/boring/bin/firecracker` | firecracker binary |
 | `BORING_KERNEL` | `/opt/boring/kernel/vmlinux` | uncompressed kernel |
 | `BORING_ROOTFS` | `/opt/boring/rootfs/rootfs.ext4` | base rootfs |
