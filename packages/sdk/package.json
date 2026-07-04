@@ -19,7 +19,8 @@
 		"format": "prettier --write ."
 	},
 	"dependencies": {
-		"effect": "^3.12.0"
+		"effect": "^3.12.0",
+		"@effect/platform": "^0.96.0"
 	},
 	"devDependencies": {
 		"typescript": "^6.0.3",

@@ -2,28 +2,47 @@
  * @boring/sdk — Effect-native TypeScript client for the boring computers
  * Firecracker microVM API.
  *
- * Every call is an `Effect` with typed errors; the serial console is a `Stream`
- * with `Scope`-based teardown. Relies on the global `fetch` and `WebSocket`
- * (Node 24+ / browsers).
+ * REST calls go through `@effect/platform`'s `HttpClient` and validate responses
+ * with `Schema`; errors are tagged; the serial console is a `Stream` with
+ * `Scope`-based teardown. Relies on the global `fetch` / `WebSocket`.
  */
 
-import { Context, Data, Duration, Effect, Layer, Queue, Schedule, Scope, Stream } from 'effect';
+import {
+	Context,
+	Data,
+	Duration,
+	Effect,
+	Layer,
+	Queue,
+	Schedule,
+	Schema,
+	Scope,
+	Stream
+} from 'effect';
+import {
+	FetchHttpClient,
+	HttpClient,
+	HttpClientRequest,
+	HttpClientResponse
+} from '@effect/platform';
 
-// --- wire types -------------------------------------------------------------
+// --- wire types (Schema-validated) ------------------------------------------
 
-export type MachineMode = 'coldboot' | 'snapshot' | 'warm';
-export type MachineStatus = 'running';
+const MachineSchema = Schema.Struct({
+	id: Schema.String,
+	status: Schema.Literal('running'),
+	mode: Schema.Literal('coldboot', 'snapshot', 'warm'),
+	boot_ms: Schema.Number,
+	template: Schema.String,
+	created_at: Schema.String,
+	expires_at: Schema.String
+});
+const MachineListSchema = Schema.Struct({ machines: Schema.Array(MachineSchema) });
 
 /** A microVM as returned by the boringd REST API. */
-export interface Machine {
-	readonly id: string;
-	readonly status: MachineStatus;
-	readonly mode: MachineMode;
-	readonly boot_ms: number;
-	readonly template: string;
-	readonly created_at: string;
-	readonly expires_at: string;
-}
+export type Machine = Schema.Schema.Type<typeof MachineSchema>;
+export type MachineMode = Machine['mode'];
+export type MachineStatus = Machine['status'];
 
 export interface CreateMachineOptions {
 	readonly template?: string;
@@ -41,7 +60,7 @@ export interface BoringClientOptions {
 
 // --- errors -----------------------------------------------------------------
 
-/** The request never got a response (network error, timeout, bad URL). */
+/** The request never got a valid response (network error, timeout, bad body). */
 export class RequestError extends Data.TaggedError('RequestError')<{
 	readonly method: string;
 	readonly path: string;
@@ -87,38 +106,42 @@ export const make = (options: BoringClientOptions = {}): BoringClient => {
 	const baseUrl = (options.baseUrl ?? 'http://localhost:8080').replace(/\/+$/, '');
 	const token = options.token;
 
+	// One request → typed error, Schema-decoded body (or void when schema is null).
 	const request = <A>(
-		method: string,
+		method: 'GET' | 'POST' | 'DELETE',
 		path: string,
+		schema: Schema.Schema<A> | null,
 		body?: unknown
 	): Effect.Effect<A, BoringError> =>
 		Effect.gen(function* () {
-			const headers: Record<string, string> = {};
-			if (token !== undefined) headers['Authorization'] = `Bearer ${token}`;
-			if (body !== undefined) headers['Content-Type'] = 'application/json';
+			const client = yield* HttpClient.HttpClient;
+			const url = `${baseUrl}${path}`;
+			let req =
+				method === 'GET'
+					? HttpClientRequest.get(url)
+					: method === 'DELETE'
+						? HttpClientRequest.del(url)
+						: HttpClientRequest.post(url);
+			if (token !== undefined)
+				req = HttpClientRequest.setHeader(req, 'Authorization', `Bearer ${token}`);
+			if (body !== undefined) req = HttpClientRequest.bodyUnsafeJson(req, body);
 
-			const res = yield* Effect.tryPromise({
-				try: (signal) =>
-					fetch(`${baseUrl}${path}`, {
-						method,
-						headers,
-						body: body !== undefined ? JSON.stringify(body) : undefined,
-						signal
-					}),
-				catch: (cause) => new RequestError({ method, path, cause })
-			});
+			const res = yield* client
+				.execute(req)
+				.pipe(Effect.mapError((cause) => new RequestError({ method, path, cause })));
 
-			if (!res.ok) {
-				const text = yield* Effect.promise(() => res.text().catch(() => ''));
+			if (res.status >= 400) {
+				const text = yield* res.text.pipe(Effect.orElseSucceed(() => ''));
 				return yield* new ResponseError({ status: res.status, body: text });
 			}
-			if (res.status === 204) return undefined as A;
-			const text = yield* Effect.tryPromise({
-				try: () => res.text(),
-				catch: (cause) => new RequestError({ method, path, cause })
-			});
-			return (text.length === 0 ? undefined : JSON.parse(text)) as A;
-		});
+			if (schema === null) {
+				yield* res.text.pipe(Effect.orElseSucceed(() => '')); // drain
+				return undefined as A;
+			}
+			return yield* HttpClientResponse.schemaBodyJson(schema)(res).pipe(
+				Effect.mapError((cause) => new RequestError({ method, path, cause }))
+			);
+		}).pipe(Effect.scoped, Effect.provide(FetchHttpClient.layer));
 
 	// Retry transient failures (transport errors + 5xx) up to twice, backing off.
 	const retry = Schedule.exponential(Duration.millis(250)).pipe(
@@ -169,15 +192,15 @@ export const make = (options: BoringClientOptions = {}): BoringClient => {
 			if (opts.template !== undefined) body.template = opts.template;
 			if (opts.ttlSeconds !== undefined) body.ttl_seconds = opts.ttlSeconds;
 			if (opts.net !== undefined) body.net = opts.net;
-			return request<Machine>('POST', '/v1/machines', body).pipe(Effect.retry(retry));
+			return request('POST', '/v1/machines', MachineSchema, body).pipe(Effect.retry(retry));
 		},
-		listMachines: request<{ machines: ReadonlyArray<Machine> }>('GET', '/v1/machines').pipe(
+		listMachines: request('GET', '/v1/machines', MachineListSchema).pipe(
 			Effect.map((r) => r.machines)
 		),
-		getMachine: (id) => request<Machine>('GET', `/v1/machines/${encodeURIComponent(id)}`),
-		destroyMachine: (id) => request<void>('DELETE', `/v1/machines/${encodeURIComponent(id)}`),
+		getMachine: (id) => request('GET', `/v1/machines/${encodeURIComponent(id)}`, MachineSchema),
+		destroyMachine: (id) => request('DELETE', `/v1/machines/${encodeURIComponent(id)}`, null),
 		branchMachine: (id) =>
-			request<Machine>('POST', `/v1/machines/${encodeURIComponent(id)}/branch`),
+			request('POST', `/v1/machines/${encodeURIComponent(id)}/branch`, MachineSchema),
 		connectTty
 	};
 };

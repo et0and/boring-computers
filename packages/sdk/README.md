@@ -1,9 +1,10 @@
 # @boring/sdk
 
 An [Effect](https://effect.website)-native TypeScript client for the **boring
-computers** Firecracker microVM API (`boringd`). Every call is an `Effect` with
-typed errors; the serial console is a `Stream` with `Scope`-based teardown. Uses
-the global `fetch` / `WebSocket` (Node 24+ / browsers).
+computers** Firecracker microVM API (`boringd`). REST calls go through
+`@effect/platform`'s `HttpClient` and validate responses with `Schema`; every
+call is an `Effect` with typed errors; the serial console is a `Stream` with
+`Scope`-based teardown.
 
 > Lives in the monorepo — not published to npm. Build it and import from `dist/`.
 

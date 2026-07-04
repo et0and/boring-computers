@@ -92,8 +92,8 @@ curl -s -X POST ${API}/v1/machines \\
 			target="_blank"
 			rel="noopener"
 			class="text-accent hover:underline">Effect</a
-		>-native client lives in the repo at <code class="text-ink">packages/sdk</code> (not on npm) — typed
-		errors, a streaming serial console, retries built in:
+		>-native client lives in the repo at <code class="text-ink">packages/sdk</code> (not on npm) — Schema-validated
+		responses, typed errors, a streaming serial console, retries built in:
 	</p>
 	<div class="mt-3">
 		{@render code(`import { Effect, Stream } from 'effect';
