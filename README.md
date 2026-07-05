@@ -8,6 +8,12 @@ and self-destructs. **Open source (Apache-2.0), self-hosted with your own keys.*
 [boringcomputers.com](https://boringcomputers.com) is a showcase; you run the real
 thing yourself.
 
+![A boring computer: a live desktop with a browser and calculator, a terminal with claude/codex/cursor/pi preinstalled, and an AI build box](docs/hero.png)
+
+> One machine, everything on it — a live desktop with a real browser, a terminal
+> with coding agents preinstalled, and an AI you can hand the whole thing to.
+> Type _"build a snake game"_ and it writes it, runs it, and gives you a link to play.
+
 ## What you get
 
 - **A computer** — a full Linux desktop (browser, terminal, apps) over VNC, or a
