@@ -4,7 +4,8 @@
 
 Each one is a real [Firecracker](https://firecracker-microvm.github.io/) microVM —
 a full machine with its own kernel — that boots in milliseconds, does its thing,
-and self-destructs. **Open source (Apache-2.0), self-hosted with your own keys.**
+and self-destructs when it's done (or stays up as long as you want).
+**Open source (Apache-2.0), self-hosted with your own keys.**
 [boringcomputers.com](https://boringcomputers.com) is a showcase; you run the real
 thing yourself.
 
@@ -25,6 +26,8 @@ thing yourself.
 - **Files & ports** — drag files in and out; open any port through the daemon.
 - **Fork** — clone a running computer, exact live state and all, in ~35 ms.
 - **Storage** — persistent volumes (S3-backed) that outlive a machine.
+- **Ephemeral or not** — machines self-destruct on a TTL by default; flip
+  _keep alive_ and one runs until you stop it.
 
 ## Run your own
 
@@ -66,7 +69,8 @@ There's also a small Effect-native TypeScript client
 
 Real hardware-virtualized isolation — a kernel per machine, not a shared
 container. Each VM is jailed and resource-capped, restored from a memory
-snapshot in ~3 ms, and self-destructs on a TTL. Guests are network-isolated
+snapshot in ~3 ms, and self-destructs on a TTL (or runs until you stop it, when
+the server enables `BORING_ALLOW_PERSISTENT`). Guests are network-isolated
 behind an egress firewall. The control plane is [`boringd/`](boringd) (Go); host
 setup is one command ([`infra/setup.sh`](infra/setup.sh)).
 

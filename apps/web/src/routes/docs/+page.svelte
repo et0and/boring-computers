@@ -24,7 +24,8 @@
 		A computer is one HTTP call away. <span class="text-ink">boringd</span> boots a Firecracker
 		microVM — jailed, resource-capped, network-isolated — and hands you a serial console, a VNC
 		display, or an AI that drives it. Snapshot-restore means a shell is ready in
-		<span class="text-ink">~3&nbsp;ms</span>. Every machine self-destructs when its TTL expires.
+		<span class="text-ink">~3&nbsp;ms</span>. Machines self-destruct when their TTL expires — or
+		pass <code class="text-ink">"persistent": true</code> to keep one running until you delete it.
 	</p>
 
 	<h2 class="mt-12 text-[15px] font-semibold text-ink">Base URL</h2>

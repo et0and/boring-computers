@@ -78,8 +78,8 @@
 			'A shell resumes from a memory snapshot in ~3 ms. No cold boot, no waiting.'
 		],
 		[
-			'Self-destruct',
-			'Every machine has a TTL and cleans itself up. Nothing lingers, nothing to manage.'
+			'Ephemeral by default',
+			'Machines clean themselves up on a TTL — nothing lingers. Or flip “keep alive” and one runs until you stop it.'
 		]
 	];
 
