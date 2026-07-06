@@ -69,7 +69,9 @@ apt-get update
 apt-get install -y --no-install-recommends chromium
 
 # Node 22 (glibc) from the official tarball — the coding-agent CLIs need >=22.
-NODEFILE=$(curl -fsSL https://nodejs.org/dist/latest-v22.x/ | grep -oE 'node-v22\.[0-9.]+-linux-x64\.tar\.xz' | head -1)
+# Node names the arch x64/arm64 (not x86_64/aarch64), so map from uname.
+NODE_ARCH=$(uname -m); [ "$NODE_ARCH" = "x86_64" ] && NODE_ARCH=x64; [ "$NODE_ARCH" = "aarch64" ] && NODE_ARCH=arm64
+NODEFILE=$(curl -fsSL https://nodejs.org/dist/latest-v22.x/ | grep -oE 'node-v22\.[0-9.]+-linux-'"$NODE_ARCH"'\.tar\.xz' | head -1)
 curl -fsSL "https://nodejs.org/dist/latest-v22.x/${NODEFILE}" -o /tmp/node.tar.xz
 tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1
 rm -f /tmp/node.tar.xz
@@ -113,9 +115,15 @@ i=0; while [ ! -S /tmp/.X11-unix/X0 ] && [ "$i" -lt 100 ]; do i=$((i+1)); sleep 
 
 xsetroot -solid "#0b0b0c" 2>/dev/null
 openbox >/var/log/openbox.log 2>&1 &
+# chromium needs a system dbus; start one (harmless if already up).
+dbus-uuidgen --ensure 2>/dev/null || true
+mkdir -p /run/dbus && dbus-daemon --system --fork 2>/dev/null || true
 # A real browser (main window), a dev terminal that advertises the coding agents,
 # and the calculator (kept for the computer-use agent demo). xcalc honours -geometry.
-chromium --no-sandbox --test-type --disable-dev-shm-usage --disable-gpu --no-first-run \
+# Call the real ELF, not /usr/bin/chromium: Debian's launcher wrapper aborts on
+# arm64 ("[: -lt: unexpected operator"). Same path on x86_64, so it's arch-neutral.
+CHROMIUM_BIN=/usr/lib/chromium/chromium; [ -x "$CHROMIUM_BIN" ] || CHROMIUM_BIN=chromium
+"$CHROMIUM_BIN" --no-sandbox --test-type --disable-dev-shm-usage --disable-gpu --no-first-run \
   --disable-features=Translate --password-store=basic --user-data-dir=/root/.chromium \
   --window-size=900,600 --window-position=16,20 https://duckduckgo.com >/var/log/chromium.log 2>&1 &
 xterm -fa "DejaVu Sans Mono" -fs 10 -geometry 108x13+16+648 -bg "#0e0e0e" -fg "#ededed" \
