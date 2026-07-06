@@ -31,9 +31,12 @@ thing yourself.
 
 ## Run your own
 
-You need a machine that can run Firecracker: **Ubuntu 24.04 x86_64 with
-`/dev/kvm`** (a bare-metal box, or a VM with nested virtualization) that you can
-root-SSH into. One command turns it into a running boringd:
+You need a machine that can run Firecracker — a Linux box with `/dev/kvm`, **or
+just your Mac**:
+
+**On a Linux box** — Ubuntu 24.04, **x86_64 or arm64**, with `/dev/kvm`
+(bare-metal, or a VM with nested virtualization) that you can root-SSH into. One
+command turns it into a running boringd:
 
 ```sh
 git clone https://github.com/michaelshimeles/boring-computers
@@ -46,6 +49,19 @@ BORING_ANTHROPIC_KEY=sk-ant-...  ./infra/setup.sh root@YOUR_BOX_IP
 Don't have a box? If you use [Latitude.sh](https://latitude.sh),
 [`infra/latitude/provision.sh`](infra/latitude/provision.sh) creates one for you
 first. Any other provider works too — just point `setup.sh` at it.
+
+**On an Apple Silicon Mac** (M3 or later) — no server needed. One command builds
+the whole arm64 stack in a nested-virt [Lima](https://lima-vm.io) VM; real
+microVMs boot on your laptop (a shell restores from snapshot in ~5 ms):
+
+```sh
+brew install lima
+BORING_ANTHROPIC_KEY=sk-ant-...  ./infra/local/setup-local.sh
+# boringd is now at http://localhost:8088 — details in infra/local/README.md
+```
+
+(Windows 11 via WSL2 is designed but not yet wired up — see
+[`infra/local/README.md`](infra/local/README.md).)
 
 Then run the site against it:
 

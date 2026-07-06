@@ -115,7 +115,7 @@
 								<span class="text-ink-faint">$</span> cd boring-computers && npm install
 							</div>
 							<div class="text-ink-faint">
-								# add your Anthropic + S3 keys, then run boringd on a KVM box
+								# add your keys, then run boringd on a KVM box — or your Mac
 							</div>
 							<div class="text-ink-muted"><span class="text-ink-faint">$</span> ./boringd</div>
 							<div class="mt-2 text-success">
@@ -181,8 +181,8 @@
 				<h2 class="text-[18px] font-semibold tracking-[-0.02em] text-ink">Run your own</h2>
 				<p class="mt-2 max-w-xl text-[13px] leading-relaxed text-ink-muted">
 					It's open source (Apache-2.0) and self-hosted — bring your own Anthropic + S3 keys, point
-					it at a Linux box with <code class="text-ink">/dev/kvm</code>, and deploy the site at your
-					own endpoint. Nothing phones home.
+					it at a Linux box with <code class="text-ink">/dev/kvm</code> (x86_64 or arm64), or run
+					the whole thing on an Apple Silicon Mac with one command. Nothing phones home.
 				</p>
 				<div class="mt-5 flex flex-wrap items-center gap-3 font-mono text-[12px]">
 					<a
