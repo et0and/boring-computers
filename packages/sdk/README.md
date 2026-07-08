@@ -60,6 +60,11 @@ Prefer dependency injection? Use `layer({ baseUrl })` and the `BoringClient` tag
 - `exec(id, command, { timeoutSeconds? }): Effect<ExecResult, BoringError>` —
   run one command, get `{ output, exit_code, timed_out, duration_ms }`
 - `extendMachine(id, ttlSeconds?): Effect<Machine, BoringError>` — reset the TTL
+- `branchMachines(id, count): Effect<Machine[], BoringError>` — fleet fork: N
+  live clones from one snapshot (each carries `parent`)
+- `publishMachine(id, name): Effect<Template, BoringError>` — freeze a machine
+  as a named template; boot it later with `createMachine({ template: name })`
+- `listTemplates: Effect<Template[], BoringError>` / `deleteTemplate(name)`
 - `listMachines: Effect<Machine[], BoringError>`
 - `getMachine(id) / branchMachine(id): Effect<Machine, BoringError>`
 - `destroyMachine(id): Effect<void, BoringError>`

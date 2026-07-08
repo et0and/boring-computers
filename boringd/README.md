@@ -41,7 +41,10 @@ from a live snapshot) are best-effort optimizations that fall back cleanly.
 | DELETE | `/v1/machines/{id}` | 204 or 404 |
 | POST | `/v1/machines/{id}/exec` | body `{"command":"…","timeout_seconds":30}` → `{"output","exit_code","timed_out","duration_ms"}` (409 while an exec/agent holds the console) |
 | POST | `/v1/machines/{id}/extend` | body `{"ttl_seconds":300}` (0/omitted → default) → machine with its new expiry |
-| POST | `/v1/machines/{id}/branch` | live fork → machine (501 if snapshot unavailable) |
+| POST | `/v1/machines/{id}/branch` | live fork → machine (501 if snapshot unavailable). `?count=N` forks N clones from ONE snapshot → `{"machines":[…]}`; partial failures keep the successes; forks carry `"parent"` |
+| POST | `/v1/machines/{id}/publish` | body `{"name":"my-tpl"}` → freeze the machine as a template; boot it later via `{"template":"my-tpl"}` in ms (400 bad/built-in name, 409 exists, 429 quota) |
+| GET | `/v1/templates` | `{"templates":[…]}` — built-ins + published (name, size, display, source) |
+| DELETE | `/v1/templates/{name}` | remove a published template (400 for built-ins) |
 | GET | `/v1/machines/{id}/screenshot` | PNG of a desktop machine |
 | POST | `/v1/machines/{id}/upload` | upload a file to `/root` (`X-Filename` header) |
 | GET | `/v1/machines/{id}/download?path=` | download a file (needs a connected machine) |
@@ -74,6 +77,8 @@ The WebSocket route also accepts `?token=<token>`. `/healthz` is always open.
 | --- | --- | --- |
 | `BORING_TOKEN` | *(unset)* | Bearer token; empty disables auth |
 | `BORING_MAX` | `20` | max live machines (429 when full) |
+| `BORING_MAX_TEMPLATES` | `10` | max user-published templates (`/publish`); `0` disables publishing |
+| `BORING_MAX_FORKS` | `8` | max clones per fleet fork (`branch?count=N`) |
 | `BORING_ALLOW_PERSISTENT` | `0` | `1` honors `"persistent": true` (no-TTL machines that run until deleted). Off by default so a public instance can't be drained. |
 | `BORING_MEM_RESERVE_MB` | `3072` | host RAM kept free; boot refused (429) rather than OOM the box (0 disables) |
 | `BORING_FIRECRACKER_BIN` | `/opt/boring/bin/firecracker` | firecracker binary |
