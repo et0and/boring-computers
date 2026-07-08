@@ -509,11 +509,11 @@ func (d *fcDriver) CreateSnapshot(newID string) (string, error) {
 	if err := d.apiPatch("/vm", map[string]any{"state": "Paused"}); err != nil {
 		return "", fmt.Errorf("pause: %w", err)
 	}
-	if err := d.apiPut("/snapshot/create", map[string]any{
+	if err := d.apiPutSlow("/snapshot/create", map[string]any{
 		"snapshot_type": "Full",
 		"snapshot_path": apiSnap,
 		"mem_file_path": apiMem,
-	}); err != nil {
+	}, 3*time.Minute); err != nil {
 		// Try to resume before returning so the source stays alive.
 		_ = d.apiPatch("/vm", map[string]any{"state": "Resumed"})
 		_ = os.RemoveAll(snapDir)
@@ -558,6 +558,18 @@ func (d *fcDriver) apiPatch(path string, body any) error {
 }
 
 func (d *fcDriver) apiReq(method, path string, body any) error {
+	return d.apiReqClient(d.apiClt, method, path, body)
+}
+
+// apiPutSlow is apiPut with a generous timeout, for calls that legitimately
+// take a while — writing a multi-GB memory snapshot outlives the default 10s
+// client (a desktop's 2.5GB mem file can take tens of seconds under load).
+func (d *fcDriver) apiPutSlow(path string, body any, timeout time.Duration) error {
+	slow := &http.Client{Timeout: timeout, Transport: d.apiClt.Transport}
+	return d.apiReqClient(slow, http.MethodPut, path, body)
+}
+
+func (d *fcDriver) apiReqClient(clt *http.Client, method, path string, body any) error {
 	raw, err := json.Marshal(body)
 	if err != nil {
 		return err
@@ -567,7 +579,7 @@ func (d *fcDriver) apiReq(method, path string, body any) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := d.apiClt.Do(req)
+	resp, err := clt.Do(req)
 	if err != nil {
 		return err
 	}
